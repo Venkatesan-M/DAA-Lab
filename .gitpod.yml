@@ -1,0 +1,8 @@
+tasks:
+  # Task to install general utilities
+  - name: utils
+    before: |
+      sudo apt update
+      sudo apt-get install -y tree
+      clear
+      exit
