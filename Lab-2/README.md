@@ -1,74 +1,64 @@
-# DAA-Lab - Lab 1
-
-## Overview
-
-This project contains C++ code for Implementation Insertion Sort with experiments on the analysis and the efficiency.
+# DAA-Lab - Lab 2
+This project involves implementing the Insertion Sort algorithm, analyzing its time complexity, and generating graphs to illustrate the relationship between the input size and the execution time.
 
 ## Project Structure
+`code.cpp`: Contains the C++ implementation for the Insertion Sort algorithm.
 
+`time.cpp`: Contains the C++ implementation for measuring execution time.
 
-- `code.cpp`: Contains the C++ implementation for finding the minimum and maximum scores.
-- `time.cpp`: Contains the C++ implementation for timing the execution.
-<!-- - `plot.py`: Python script to generate and save graphs of execution time versus the number of participants.
-- `execution_time_vs_participants.png`: Default PNG file for the execution time graph.
-- `execution_time_vs_participants_dark.png`: Dark-themed PNG file for the execution time graph. -->
+`plot.py`: Python script to generate and save graphs of execution time versus input size.
+
+`execution_time_vs_input_size.png`: Graph of execution time versus input size.
+
+`execution_time_vs_input_size_dark.png`: Dark-themed graph of execution time versus input size.
+
 
 ## Prerequisites
-
 Ensure you have the following installed:
 
-- C++ compiler (e.g., `g++`)
+- C++ compiler (e.g., g++)
 - Python 3.x
-- Python libraries: `matplotlib`, `seaborn`
-
+- Python libraries: matplotlib, seaborn
 ## Instructions
-
 ### 1. Compile and Run the C++ Code
-
 To compile and execute the C++ programs, follow these steps:
 
-1. **Compile `code.cpp`**:
-    ```sh
-    g++ -o code code.cpp
-    ```
+```sh
+g++ -o code code.cpp
+```
+Run the executable:
 
-2. **Run the executable**:
-    ```sh
-    ./code
-    ```
+```sh
+./code
+```
+Compile time.cpp:
 
-   This program will prompt for the number of participants and their scores and display the minimum and maximum scores along with the execution time.
 
-3. **Compile `time.cpp`** (if needed):
-    ```sh
-    g++ -o time time.cpp
-    ```
+```sh
+g++ -o time time.cpp
+```
+Run the executable:
 
-4. **Run the executable**:
-    ```sh
-    ./time
-    ```
-
-   This program will output the execution time for different numbers of participants.
+```sh
+./time
+```
+This program will output the execution time for different input sizes.
 
 ### 2. Generate Execution Time Graph
+To generate and save the execution time graph, use the Python script plot_insertion_sort.py:
 
-To generate and save the execution time graph, use the Python script `plot.py`:
+Ensure Python libraries are installed:
 
-1. **Ensure Python libraries are installed**:
-    ```sh
-    pip install matplotlib seaborn
-    ```
+```sh
+pip install matplotlib seaborn
+```
+Run the Python script:
 
-2. **Run the Python script**:
-    ```sh
-    python plot.py
-    ```
-
-   This will generate and save the execution time graphs as PNG files: `execution_time_vs_participants.png` and `execution_time_vs_participants_dark.png`.
+```sh
+python plot.py
+```
+This will generate and save the execution time graphs as PNG files: `execution_time_vs_input_size.png` and `execution_time_vs_input_size_dark.png`.
 
 ## Results
-
-- `execution_time_vs_participants.png`: Standard graph with default styling.
-- `execution_time_vs_participants_dark.png`: Dark-themed graph for better visualization in dark mode.
-
+`execution_time_vs_input_size.png`: Standard graph with default styling.
+`execution_time_vs_input_size_dark.png`: Dark-themed graph for better visualization in dark mode.

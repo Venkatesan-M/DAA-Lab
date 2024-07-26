@@ -1,7 +1,7 @@
 #include <iostream>
-#include <chrono>
+#include <ctime>
+#include <cstdlib>
 using namespace std;
-using namespace std::chrono;
 
 void InsertionSort(int arr[], int n) {
     for (int i = 1; i < n; ++i) {
@@ -15,28 +15,25 @@ void InsertionSort(int arr[], int n) {
     }
 }
 
-int main() {
-    int n;
-    cin >> n;
-    
+void measureExecutionTime(int n) {
     int arr[n];
     for (int i = 0; i < n; ++i) {
-        cin >> arr[i];
+        arr[i] = rand() % 100;
     }
 
-    // Measure time taken by InsertionSort
-    auto start = high_resolution_clock::now();
+    clock_t start = clock();
     InsertionSort(arr, n);
-    auto stop = high_resolution_clock::now();
-    auto duration = duration_cast<microseconds>(stop - start);
+    clock_t end = clock();
 
-    cout << "Sorted array: ";
-    for (int j = 0; j < n; ++j) {
-        cout << arr[j] << " ";
+    double duration = double(end - start) / CLOCKS_PER_SEC;
+    cout << "Input size: " << n << ", Time taken: " << duration << " seconds" << endl;
+}
+
+int main() {
+    srand(time(0));
+    int sizes[] = {10, 100, 1000, 10000, 100000, 1000000};
+    for (int size : sizes) {
+        measureExecutionTime(size);
     }
-    cout << endl;
-
-    cout << "Time taken for sorting: " << duration.count() << " microseconds" << endl;
-
     return 0;
 }
