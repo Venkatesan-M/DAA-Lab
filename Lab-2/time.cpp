@@ -15,19 +15,19 @@ void InsertionSort(int arr[], int n) {
     }
 }
 
-void measureExecutionTime(int n) {
-    int arr[n];
-    for (int i = 0; i < n; ++i) {
-        arr[i] = rand() % 100;
+    void measureExecutionTime(int n) {
+        int arr[n];
+        for (int i = 0; i < n; ++i) {
+            arr[i] = rand() % 100;
+        }
+
+        clock_t start = clock();
+        InsertionSort(arr, n);
+        clock_t end = clock();
+
+        double duration = double(end - start) / CLOCKS_PER_SEC;
+        cout << "Input size: " << n << ", Time taken: " << duration << " seconds" << endl;
     }
-
-    clock_t start = clock();
-    InsertionSort(arr, n);
-    clock_t end = clock();
-
-    double duration = double(end - start) / CLOCKS_PER_SEC;
-    cout << "Input size: " << n << ", Time taken: " << duration << " seconds" << endl;
-}
 
 int main() {
     srand(time(0));
