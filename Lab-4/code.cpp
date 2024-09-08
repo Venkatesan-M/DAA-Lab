@@ -1,4 +1,4 @@
-#include <iostream>emise
+#include <iostream>
 #include<climits>
 using namespace std;
 int rodCutting(int n, int value[])
