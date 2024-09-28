@@ -1,0 +1,5 @@
+N=4: 6 microseconds
+N=8: 831 microseconds
+N=10: 17691 microseconds
+N=12: 532708 microseconds
+N=14: 20588864 microseconds
