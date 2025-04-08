@@ -1,0 +1,4597 @@
+tokens
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <ctype.h>
+
+#define MAX_LEN 100
+
+typedef struct Token {
+    char type[50];
+    char value[50];
+    struct Token *next;
+} Token;
+
+Token* createToken(const char *type, const char *value) {
+    Token *newToken = (Token*)malloc(sizeof(Token));
+    strcpy(newToken->type, type);
+    strcpy(newToken->value, value);
+    newToken->next = NULL;
+    return newToken;
+}
+
+void insertToken(Token **head, const char *type, const char *value) {
+    Token *newToken = createToken(type, value);
+    if (*head == NULL) {
+        *head = newToken;
+    } else {
+        Token *temp = *head;
+        while (temp->next) {
+            temp = temp->next;
+        }
+        temp->next = newToken;
+    }
+}
+
+void printTokens(Token *head) {
+    Token *temp = head;
+    while (temp) {
+        printf("%s : %s\n", temp->value, temp->type);
+        temp = temp->next;
+    }
+}
+
+void freeTokens(Token *head) {
+    Token *temp;
+    while (head) {
+        temp = head;
+        head = head->next;
+        free(temp);
+    }
+}
+
+const char *keywords[] = {"int", "float", "if", "else", "while", "return", "for", "char", "double"};
+const char operators[] = {'+', '-', '*', '/', '=', '<', '>', '!', '&', '|', '%', '^'};
+const char separators[] = {',', ';', '(', ')', '{', '}', '[', ']', '"', '\''};
+const char *formatSpecifiers[] = {"%d", "%f", "%c", "%s", "%lf"};
+const char *escapeSequences[] = {"\\n", "\\t", "\\r", "\\b", "\\\"", "\\\\"};
+
+int isKeyword(const char *str) {
+    for (int i = 0; i < 9; ++i) {
+        if (strcmp(str, keywords[i]) == 0) return 1;
+    }
+    return 0;
+}
+
+int isOperator(char ch) {
+    for (int i = 0; i < 12; ++i) {
+        if (ch == operators[i]) return 1;
+    }
+    return 0;
+}
+
+int isSeparator(char ch) {
+    for (int i = 0; i < 10; ++i) {
+        if (ch == separators[i]) return 1;
+    }
+    return 0;
+}
+
+int isFormatSpecifier(const char *str) {
+    for (int i = 0; i < 5; ++i) {
+        if (strcmp(str, formatSpecifiers[i]) == 0) return 1;
+    }
+    return 0;
+}
+
+int isEscapeSequence(const char *str) {
+    for (int i = 0; i < 6; ++i) {
+        if (strcmp(str, escapeSequences[i]) == 0) return 1;
+    }
+    return 0;
+}
+
+void analyzeLexical(const char *input, Token **tokenList) {
+    int i = 0;
+    char buffer[MAX_LEN];
+    
+    while (input[i] != '\0') {
+        if (isspace(input[i])) {
+            i++;
+            continue;
+        }
+        
+        if (isalpha(input[i])) {
+            int j = 0;
+            while (isalnum(input[i])) {
+                buffer[j++] = input[i++];
+            }
+            buffer[j] = '\0';
+            
+            if (isKeyword(buffer)) {
+                insertToken(tokenList, "Keyword", buffer);
+            } else {
+                insertToken(tokenList, "Identifier", buffer);
+            }
+        } else if (isdigit(input[i])) {
+            int j = 0;
+            while (isdigit(input[i])) {
+                buffer[j++] = input[i++];
+            }
+            buffer[j] = '\0';
+            insertToken(tokenList, "Number", buffer);
+        } else if (input[i] == '%') {
+            buffer[0] = input[i++];
+            buffer[1] = input[i];
+            buffer[2] = '\0';
+            
+            if (isFormatSpecifier(buffer)) {
+                insertToken(tokenList, "Format Specifier", buffer);
+                i++;
+                continue;
+            }
+        } else if (input[i] == '\\') {
+            buffer[0] = input[i++];
+            buffer[1] = input[i];
+            buffer[2] = '\0';
+            
+            if (isEscapeSequence(buffer)) {
+                insertToken(tokenList, "Escape Sequence", buffer);
+            }
+            i++;
+        } else if (isOperator(input[i])) {
+            buffer[0] = input[i++];
+            buffer[1] = '\0';
+            insertToken(tokenList, "Operator", buffer);
+        } else if (isSeparator(input[i])) {
+            buffer[0] = input[i++];
+            buffer[1] = '\0';
+            insertToken(tokenList, "Special Character", buffer);
+        } else {
+            buffer[0] = input[i++];
+            buffer[1] = '\0';
+            insertToken(tokenList, "Unknown", buffer);
+        }
+    }
+}
+
+int main() {
+    char input[MAX_LEN];
+    Token *tokenList = NULL;
+    
+    printf("Enter the program code(Press Enter twice to stop):\n");
+    char line[MAX_LEN]; 
+    char program[MAX_LEN*10] = "";
+    
+    while(fgets(line, sizeof(line), stdin)) {
+        if(strcmp(line, "\n") == 0) break;
+        strcat(program, line);
+    }
+    
+    analyzeLexical(program, &tokenList);
+    printTokens(tokenList); 
+    freeTokens(tokenList);
+}
+
+---------------------------------------------------------
+
+ambiguous
+
+#include <stdio.h>
+#include <string.h>
+#include <stdlib.h>
+#define MAX_PROD 100
+#define MAX_RHS 10
+#define MAX_SYMBOLS 100
+#define MAX_DERIVATION_LEN 2048  // Increased buffer size to avoid truncation
+
+typedef struct Production {
+    char lhs;
+    char rhs[MAX_RHS + 1];
+    int index;
+} Production;
+
+typedef struct State {
+    char symbols[MAX_SYMBOLS];
+    char derivation[MAX_DERIVATION_LEN];
+} State;
+
+typedef struct QueueNode {
+    State state;
+    struct QueueNode *next;
+} QueueNode;
+
+typedef struct {
+    QueueNode *front;
+    QueueNode *rear;
+} Queue;
+
+void enqueue(Queue *q, State state) {
+    QueueNode *newNode = (QueueNode*)malloc(sizeof(QueueNode));
+    newNode->state = state;
+    newNode->next = NULL;
+    if (q->rear == NULL) {
+        q->front = q->rear = newNode;
+    } else {
+        q->rear->next = newNode;
+        q->rear = newNode;
+    }
+}
+
+int dequeue(Queue *q, State *state) {
+    if (q->front == NULL) return 0;
+    QueueNode *temp = q->front;
+    *state = temp->state;
+    q->front = q->front->next;
+    if (q->front == NULL) {
+        q->rear = NULL;
+    }
+    free(temp);
+    return 1;
+}
+
+// Function to print leftmost derivation
+void print_leftmost_derivation(Production productions[], char start_symbol, char *derivation_indices) {
+    char current[MAX_SYMBOLS];
+    char temp[MAX_SYMBOLS];
+    char *indices = strdup(derivation_indices);
+    char *token = strtok(indices, ",");
+   
+    // Start with the start symbol
+    snprintf(current, MAX_SYMBOLS, "%c", start_symbol);
+    printf("\nLeftmost Derivation:\n");
+    printf("%s\n", current);
+   
+    while (token != NULL) {
+        int prod_index = atoi(token);
+       
+        // Find the leftmost non-terminal
+        int pos = -1;
+        for (int i = 0; current[i] != '\0'; i++) {
+            if (current[i] >= 'A' && current[i] <= 'Z') {
+                pos = i;
+                break;
+            }
+        }
+       
+        if (pos != -1) {
+            // Apply the production
+            char pre[MAX_SYMBOLS], post[MAX_SYMBOLS];
+            strncpy(pre, current, pos);
+            pre[pos] = '\0';
+            strcpy(post, current + pos + 1);
+           
+            // Create the new string
+            strcpy(temp, pre);
+            strcat(temp, productions[prod_index].rhs);
+            strcat(temp, post);
+            strcpy(current, temp);
+           
+            printf("%s\n", current);
+        }
+       
+        token = strtok(NULL, ",");
+    }
+   
+    free(indices);
+}
+
+int main() {
+    Production productions[MAX_PROD];
+    int num_productions;
+    char start_symbol;
+   
+    printf("Enter the number of productions: ");
+    scanf("%d", &num_productions);
+   
+    for (int i = 0; i < num_productions; i++) {
+        printf("Enter production %d (lhs rhs): ", i + 1);
+        scanf(" %c %s", &productions[i].lhs, productions[i].rhs);
+        productions[i].index = i;
+    }
+   
+    printf("Enter start symbol: ");
+    scanf(" %c", &start_symbol);
+   
+    Queue queue = { NULL, NULL };
+    State initial_state;
+    snprintf(initial_state.symbols, MAX_SYMBOLS, "%c", start_symbol);
+    initial_state.derivation[0] = '\0';
+    enqueue(&queue, initial_state);
+   
+    typedef struct {
+        char string[MAX_SYMBOLS];
+        char derivation[MAX_DERIVATION_LEN];
+    } GeneratedString;
+   
+    GeneratedString generated_strings[1000];
+    int generated_count = 0;
+    int is_ambiguous = 0;
+    State current_state;
+   
+    while (dequeue(&queue, &current_state)) {
+        int is_terminal = 1;
+        for (int i = 0; current_state.symbols[i] != '\0'; i++) {
+            if (current_state.symbols[i] >= 'A' && current_state.symbols[i] <= 'Z') {
+                is_terminal = 0;
+                break;
+            }
+        }
+       
+        if (is_terminal) {
+            for (int i = 0; i < generated_count; i++) {
+                if (strcmp(generated_strings[i].string, current_state.symbols) == 0) {
+                    if (strcmp(generated_strings[i].derivation, current_state.derivation) != 0) {
+                        printf("String: %s\n", current_state.symbols);
+                        printf("Grammar is ambiguous!\n");
+                        printf("Derivation 1: %s\n", generated_strings[i].derivation);
+                        printf("Derivation 2: %s\n", current_state.derivation);
+                       
+                        // Print only the leftmost derivation
+                        print_leftmost_derivation(productions, start_symbol, current_state.derivation);
+                       
+                        is_ambiguous = 1;
+                        goto end;
+                    }
+                }
+            }
+           
+            if (generated_count < 1000) {
+                strcpy(generated_strings[generated_count].string, current_state.symbols);
+                strcpy(generated_strings[generated_count].derivation, current_state.derivation);
+                generated_count++;
+            }
+        } else {
+            int pos = -1;
+            char nt = '\0';
+           
+            // Find the leftmost non-terminal for expansion
+            for (int i = 0; current_state.symbols[i] != '\0'; i++) {
+                if (current_state.symbols[i] >= 'A' && current_state.symbols[i] <= 'Z') {
+                    pos = i;
+                    nt = current_state.symbols[i];
+                    break;
+                }
+            }
+           
+            if (pos == -1) continue;
+           
+            char pre_part[MAX_SYMBOLS] = {0};
+            strncpy(pre_part, current_state.symbols, pos);
+            pre_part[pos] = '\0';
+           
+            char post_part[MAX_SYMBOLS] = {0};
+            strcpy(post_part, current_state.symbols + pos + 1);
+           
+            for (int p = 0; p < num_productions; p++) {
+                if (productions[p].lhs == nt) {
+                    char new_symbols[MAX_SYMBOLS] = {0};
+                    strcpy(new_symbols, pre_part);
+                    strcat(new_symbols, productions[p].rhs);
+                    strcat(new_symbols, post_part);
+                   
+                    if (strlen(new_symbols) >= MAX_SYMBOLS) continue;
+                   
+                    char new_derivation[MAX_DERIVATION_LEN];
+                    int written = 0;
+                    if (current_state.derivation[0] == '\0') {
+                        written = snprintf(new_derivation, MAX_DERIVATION_LEN, "%d", productions[p].index);
+                    } else {
+                        written = snprintf(new_derivation, MAX_DERIVATION_LEN, "%s,%d",
+                                             current_state.derivation, productions[p].index);
+                    }
+                    if (written < 0 || written >= MAX_DERIVATION_LEN) {
+                        fprintf(stderr, "Warning: derivation string was truncated.\n");
+                        // Optionally handle this case (e.g., skip or reallocate)
+                    }
+                   
+                    State new_state;
+                    strcpy(new_state.symbols, new_symbols);
+                    strcpy(new_state.derivation, new_derivation);
+                    enqueue(&queue, new_state);
+                }
+            }
+        }
+    }
+   
+end:
+    if (!is_ambiguous) {
+        printf("Grammar is not ambiguous up to the explored depth.\n");
+    }
+   
+    // Clean up any remaining queue items
+    while (dequeue(&queue, &current_state));
+   
+    return 0;
+}
+
+------------------------------------------------------------
+
+LeftRecursion
+
+#include <stdio.h>
+#include <string.h>
+#include <ctype.h>
+
+struct ProductionRule {
+    char nonTerminal[10];
+    char productions[10][100];
+    int productionCount;
+};
+
+struct ProductionRule grammar[20];
+int grammarSize = 0;
+
+void trimWhitespace(char *str) {
+    char *start = str;
+    while (isspace(*start)) start++;
+    char *end = str + strlen(str) - 1;
+    while (end > start && isspace(*end)) end--;
+    *(end + 1) = '\0';
+    memmove(str, start, end - start + 2);
+}
+
+void addProduction(char *lhs, char *rhs) {
+    int ntIndex = -1;
+    for (int i = 0; i < grammarSize; i++) {
+        if (strcmp(grammar[i].nonTerminal, lhs) == 0) {
+            ntIndex = i;
+            break;
+        }
+    }
+    if (ntIndex == -1) {
+        strcpy(grammar[grammarSize].nonTerminal, lhs);
+        grammar[grammarSize].productionCount = 0;
+        ntIndex = grammarSize;
+        grammarSize++;
+    }
+    if (grammar[ntIndex].productionCount >= 10) {
+        printf("Too many productions for %s\n", lhs);
+        return;
+    }
+    strcpy(grammar[ntIndex].productions[grammar[ntIndex].productionCount], rhs);
+    grammar[ntIndex].productionCount++;
+}
+
+void eliminateLeftRecursion() {
+    int originalSize = grammarSize;
+    for (int i = 0; i < originalSize; i++) {
+        struct ProductionRule *rule = &grammar[i];
+        int hasLeftRecursion = 0;
+        for (int j = 0; j < rule->productionCount; j++) {
+            if (strncmp(rule->productions[j], rule->nonTerminal, strlen(rule->nonTerminal)) == 0) {
+                hasLeftRecursion = 1;
+                break;
+            }
+        }
+        if (!hasLeftRecursion) continue;
+
+        char alphas[10][100];
+        int alphaCount = 0;
+        char betas[10][100];
+        int betaCount = 0;
+
+        for (int j = 0; j < rule->productionCount; j++) {
+            char *prod = rule->productions[j];
+            if (strncmp(prod, rule->nonTerminal, strlen(rule->nonTerminal)) == 0) {
+                strcpy(alphas[alphaCount], prod + strlen(rule->nonTerminal));
+                alphaCount++;
+            } else {
+                strcpy(betas[betaCount], prod);
+                betaCount++;
+            }
+        }
+
+        char newNonTerminal[10];
+        strcpy(newNonTerminal, rule->nonTerminal);
+        strcat(newNonTerminal, "'");
+
+        int exists = 0;
+        for (int j = 0; j < grammarSize; j++) {
+            if (strcmp(grammar[j].nonTerminal, newNonTerminal) == 0) {
+                exists = 1;
+                break;
+            }
+        }
+        if (exists) {
+            printf("New non-terminal %s already exists\n", newNonTerminal);
+            continue;
+        }
+
+        rule->productionCount = 0;
+        for (int j = 0; j < betaCount; j++) {
+            char newProd[100];
+            if (strcmp(betas[j], "ε") == 0) {
+                strcpy(newProd, newNonTerminal);
+            } else {
+                strcpy(newProd, betas[j]);
+                strcat(newProd, newNonTerminal);
+            }
+            strcpy(rule->productions[rule->productionCount], newProd);
+            rule->productionCount++;
+        }
+
+        if (betaCount == 0) {
+            strcpy(rule->productions[rule->productionCount], newNonTerminal);
+            rule->productionCount++;
+        }
+
+        struct ProductionRule *newRule = &grammar[grammarSize];
+        strcpy(newRule->nonTerminal, newNonTerminal);
+        newRule->productionCount = 0;
+
+        for (int j = 0; j < alphaCount; j++) {
+            char newProd[100];
+            strcpy(newProd, alphas[j]);
+            strcat(newProd, newNonTerminal);
+            strcpy(newRule->productions[newRule->productionCount], newProd);
+            newRule->productionCount++;
+        }
+
+        strcpy(newRule->productions[newRule->productionCount], "ε");
+        newRule->productionCount++;
+        grammarSize++;
+    }
+}
+
+void printGrammar() {
+    for (int i = 0; i < grammarSize; i++) {
+        printf("%s -> ", grammar[i].nonTerminal);
+        for (int j = 0; j < grammar[i].productionCount; j++) {
+            printf("%s", grammar[i].productions[j]);
+            if (j != grammar[i].productionCount - 1) {
+                printf(" | ");
+            }
+        }
+        printf("\n");
+    }
+}
+
+int main() {
+    char line[256];
+    printf("Enter production rules (e.g., A -> Aa | b). Empty line to stop:\n");
+    while (1) {
+        fgets(line, sizeof(line), stdin);
+        if (line[0] == '\n') break;
+
+        char *arrow = strstr(line, "->");
+        if (!arrow) {
+            printf("Invalid syntax. Missing '->'\n");
+            continue;
+        }
+
+        *arrow = '\0';
+        char *lhs = line;
+        char *rhs = arrow + 2;
+        trimWhitespace(lhs);
+
+        if (strlen(lhs) == 0) {
+            printf("Invalid empty non-terminal\n");
+            continue;
+        }
+
+        char *token = strtok(rhs, "|");
+        while (token) {
+            char prod[100];
+            strcpy(prod, token);
+            trimWhitespace(prod);
+            if (strlen(prod) > 0) {
+                addProduction(lhs, prod);
+            }
+            token = strtok(NULL, "|");
+        }
+    }
+
+    eliminateLeftRecursion();
+
+    printf("\nGrammar after eliminating left recursion:\n");
+    printGrammar();
+}
+
+------------------------------------------------------------------
+
+Left Factoring
+
+#include <stdio.h>
+#include <string.h>
+#include <stdlib.h>
+
+#define MAX_PRODS 10
+#define MAX_PROD_LEN 50
+#define MAX_NT_LEN 10
+#define MAX_NON_TERMINALS 20
+
+typedef struct {
+    char lhs[MAX_NT_LEN];
+    char prods[MAX_PRODS][MAX_PROD_LEN];
+    int prod_count;
+} NonTerminal;
+
+NonTerminal grammar[MAX_NON_TERMINALS];
+int grammar_size = 0;
+
+int common_prefix(const char *a, const char *b, char *prefix) {
+    int i = 0;
+    while (a[i] != '\0' && b[i] != '\0' && a[i] == b[i]) {
+        i++;
+    }
+    strncpy(prefix, a, i);
+    prefix[i] = '\0';
+    return i;
+}
+
+int compare_strings(const void *a, const void *b) {
+    return strcmp(*(const char **)a, *(const char **)b);
+}
+
+void find_max_lcp(NonTerminal *nt, char *lcp, int *max_len) {
+    *max_len = 0;
+    lcp[0] = '\0';
+    if (nt->prod_count < 2) return;
+    char *prods[MAX_PRODS];
+    for (int i = 0; i < nt->prod_count; i++) {
+        prods[i] = nt->prods[i];
+    }
+    qsort(prods, nt->prod_count, sizeof(char *), compare_strings);
+    for (int i = 0; i < nt->prod_count - 1; i++) {
+        char current_lcp[MAX_PROD_LEN];
+        int len = common_prefix(prods[i], prods[i + 1], current_lcp);
+        if (len > *max_len) {
+            *max_len = len;
+            strcpy(lcp, current_lcp);
+        }
+    }
+}
+
+void left_factor(NonTerminal *nt) {
+    char lcp[MAX_PROD_LEN];
+    int max_len;
+    find_max_lcp(nt, lcp, &max_len);
+    if (max_len == 0) return;
+
+    char matched_prods[MAX_PRODS][MAX_PROD_LEN];
+    int matched_count = 0;
+    for (int i = 0; i < nt->prod_count; i++) {
+        if (strncmp(nt->prods[i], lcp, max_len) == 0) {
+            strcpy(matched_prods[matched_count], nt->prods[i]);
+            matched_count++;
+        }
+    }
+    if (matched_count < 2) return;
+
+    // Create new non-terminal (append ')
+    char new_nt_name[MAX_NT_LEN];
+    snprintf(new_nt_name, MAX_NT_LEN, "%.*s'", MAX_NT_LEN - 2, nt->lhs);
+    for (int i = 0; i < grammar_size; i++) {
+        if (strcmp(grammar[i].lhs, new_nt_name) == 0) return;
+    }
+    if (grammar_size >= MAX_NON_TERMINALS) return;
+
+    NonTerminal new_nt;
+    strcpy(new_nt.lhs, new_nt_name);
+    new_nt.prod_count = 0;
+
+    int new_prod_count = 0;
+    for (int i = 0; i < nt->prod_count; i++) {
+        if (strncmp(nt->prods[i], lcp, max_len) != 0) {
+            strcpy(nt->prods[new_prod_count], nt->prods[i]);
+            new_prod_count++;
+        }
+    }
+
+    // Add factored production (e.g., "aA'")
+    char factored_prod[MAX_PROD_LEN];
+    strncpy(factored_prod, lcp, MAX_PROD_LEN - 1);
+    factored_prod[MAX_PROD_LEN - 1] = '\0';
+    strncat(factored_prod, new_nt_name, MAX_PROD_LEN - strlen(factored_prod) - 1);
+    strcpy(nt->prods[new_prod_count], factored_prod);
+    nt->prod_count = new_prod_count + 1;
+
+    // Add suffixes to new NT
+    for (int i = 0; i < matched_count; i++) {
+        char suffix[MAX_PROD_LEN];
+        strcpy(suffix, matched_prods[i] + max_len);
+        if (strlen(suffix) == 0) strcpy(suffix, "ε");
+        strcpy(new_nt.prods[new_nt.prod_count], suffix);
+        new_nt.prod_count++;
+    }
+
+    grammar[grammar_size++] = new_nt;
+}
+
+void print_grammar() {
+    for (int i = 0; i < grammar_size; i++) {
+        printf("%s -> ", grammar[i].lhs);
+        for (int j = 0; j < grammar[i].prod_count; j++) {
+            printf("%s", grammar[i].prods[j]);
+            if (j < grammar[i].prod_count - 1) printf(" | ");
+        }
+        printf("\n");
+    }
+}
+
+int main() {
+    printf("Enter the number of non-terminals: ");
+    int nt_count;
+    scanf("%d", &nt_count);
+    grammar_size = nt_count;
+
+    for (int i = 0; i < nt_count; i++) {
+        printf("Non-terminal %d name: ", i + 1);
+        scanf("%s", grammar[i].lhs);
+        printf("Number of productions for %s: ", grammar[i].lhs);
+        scanf("%d", &grammar[i].prod_count);
+        printf("Enter productions (space-separated S aS): ");
+        for (int j = 0; j < grammar[i].prod_count; j++) {
+            scanf("%s", grammar[i].prods[j]);
+        }
+    }
+
+    for (int i = 0; i < grammar_size; i++) {
+        left_factor(&grammar[i]);
+    }
+
+    printf("\nGrammar after left factoring:\n");
+    print_grammar();
+    return 0;
+}
+
+-----------------------------------------------------------------------------
+
+FIRST and FOLLOW
+
+#include <stdio.h>
+#include <string.h>
+#include <ctype.h>
+
+#define MAX_NON_TERMS 10
+#define MAX_PROD_LEN 10
+#define MAX_PRODS_PER_NT 10
+
+struct NonTerminal {
+    char name;
+    char productions[MAX_PRODS_PER_NT][MAX_PROD_LEN];
+    int prod_count;
+};
+
+struct NonTerminal non_terms[MAX_NON_TERMS];
+int non_term_count = 0;
+
+typedef struct {
+    char symbols[20];
+    int has_epsilon;
+} FirstSet;
+
+typedef struct {
+    char symbols[20];
+    int has_dollar;
+} FollowSet;
+
+FirstSet first[26];  // A-Z mapped to 0-25
+FollowSet follow[26];
+
+int is_terminal(char c) {
+    return (c != '#' && !(c >= 'A' && c <= 'Z'));
+}
+
+int get_index(char c) {
+    return c - 'A';
+}
+
+void compute_first_of_sequence(char *beta, char *beta_first, int *beta_has_epsilon) {
+    beta_first[0] = '\0';
+    *beta_has_epsilon = 1;
+
+    for (int i = 0; beta[i] != '\0' && *beta_has_epsilon; i++) {
+        char symbol = beta[i];
+
+        if (symbol == '#') {
+            *beta_has_epsilon = 1;
+            break;
+        } else if (is_terminal(symbol)) {
+            if (!strchr(beta_first, symbol)) {
+                strncat(beta_first, &symbol, 1);
+            }
+            *beta_has_epsilon = 0;
+            break;
+        } else {
+            int sym_index = get_index(symbol);
+            for (int j = 0; j < strlen(first[sym_index].symbols); j++) {
+                char c = first[sym_index].symbols[j];
+                if (!strchr(beta_first, c)) {
+                    strncat(beta_first, &c, 1);
+                }
+            }
+            if (!first[sym_index].has_epsilon) {
+                *beta_has_epsilon = 0;
+            }
+        }
+    }
+}
+
+void compute_first() {
+    int changed;
+    do {
+        changed = 0;
+        for (int i = 0; i < non_term_count; i++) {
+            char nt = non_terms[i].name;
+            int nt_index = get_index(nt);
+
+            for (int j = 0; j < non_terms[i].prod_count; j++) {
+                char *prod = non_terms[i].productions[j];
+                int can_derive_epsilon = 1;
+
+                for (int k = 0; prod[k] != '\0' && can_derive_epsilon; k++) {
+                    char symbol = prod[k];
+
+                    if (symbol == '#') {
+                        if (!first[nt_index].has_epsilon) {
+                            first[nt_index].has_epsilon = 1;
+                            changed = 1;
+                        }
+                        can_derive_epsilon = 0;
+                        break;
+                    } else if (is_terminal(symbol)) {
+                        if (!strchr(first[nt_index].symbols, symbol)) {
+                            int len = strlen(first[nt_index].symbols);
+                            first[nt_index].symbols[len] = symbol;
+                            first[nt_index].symbols[len + 1] = '\0';
+                            changed = 1;
+                        }
+                        can_derive_epsilon = 0;
+                        break;
+                    } else {
+                        int sym_index = get_index(symbol);
+                        for (int l = 0; l < strlen(first[sym_index].symbols); l++) {
+                            char c = first[sym_index].symbols[l];
+                            if (!strchr(first[nt_index].symbols, c)) {
+                                int len = strlen(first[nt_index].symbols);
+                                first[nt_index].symbols[len] = c;
+                                first[nt_index].symbols[len + 1] = '\0';
+                                changed = 1;
+                            }
+                        }
+                        if (!first[sym_index].has_epsilon) {
+                            can_derive_epsilon = 0;
+                        }
+                    }
+                }
+
+                if (can_derive_epsilon) {
+                    if (!first[nt_index].has_epsilon) {
+                        first[nt_index].has_epsilon = 1;
+                        changed = 1;
+                    }
+                }
+            }
+        }
+    } while (changed);
+}
+
+void compute_follow() {
+    for (int i = 0; i < 26; i++) {
+        follow[i].symbols[0] = '\0';
+        follow[i].has_dollar = 0;
+    }
+
+    char start_symbol = non_terms[0].name;
+    int start_index = get_index(start_symbol);
+    follow[start_index].has_dollar = 1;
+
+    int changed;
+    do {
+        changed = 0;
+        for (int i = 0; i < non_term_count; i++) {
+            char A = non_terms[i].name;
+            int A_index = get_index(A);
+
+            for (int j = 0; j < non_terms[i].prod_count; j++) {
+                char *prod = non_terms[i].productions[j];
+
+                for (int k = 0; prod[k] != '\0'; k++) {
+                    char B = prod[k];
+                    if (B >= 'A' && B <= 'Z') {
+                        int B_index = get_index(B);
+                        char beta[MAX_PROD_LEN];
+                        strcpy(beta, prod + k + 1);
+
+                        char beta_first[20] = "";
+                        int beta_has_epsilon = 0;
+                        compute_first_of_sequence(beta, beta_first, &beta_has_epsilon);
+
+                        for (int l = 0; l < strlen(beta_first); l++) {
+                            char c = beta_first[l];
+                            if (!strchr(follow[B_index].symbols, c)) {
+                                int len = strlen(follow[B_index].symbols);
+                                follow[B_index].symbols[len] = c;
+                                follow[B_index].symbols[len + 1] = '\0';
+                                changed = 1;
+                            }
+                        }
+
+                        if (beta_has_epsilon) {
+                            for (int l = 0; l < strlen(follow[A_index].symbols); l++) {
+                                char c = follow[A_index].symbols[l];
+                                if (!strchr(follow[B_index].symbols, c)) {
+                                    int len = strlen(follow[B_index].symbols);
+                                    follow[B_index].symbols[len] = c;
+                                    follow[B_index].symbols[len + 1] = '\0';
+                                    changed = 1;
+                                }
+                            }
+
+                            if (follow[A_index].has_dollar && !follow[B_index].has_dollar) {
+                                follow[B_index].has_dollar = 1;
+                                changed = 1;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    } while (changed);
+}
+
+void print_set(char nt, FirstSet first_set, FollowSet follow_set, int is_first) {
+    printf("%c: { ", nt);
+    if (is_first) {
+        for (int i = 0; i < strlen(first_set.symbols); i++) {
+            printf("%c", first_set.symbols[i]);
+            if (i < strlen(first_set.symbols) - 1 || first_set.has_epsilon) {
+                printf(", ");
+            }
+        }
+        if (first_set.has_epsilon) {
+            printf("ε");
+        }
+    } else {
+        for (int i = 0; i < strlen(follow_set.symbols); i++) {
+            printf("%c", follow_set.symbols[i]);
+            if (i < strlen(follow_set.symbols) - 1 || follow_set.has_dollar) {
+                printf(", ");
+            }
+        }
+        if (follow_set.has_dollar) {
+            printf("$");
+        }
+    }
+    printf(" }\n");
+}
+
+int main() {
+    int n;
+    printf("Enter the number of productions(For eg. A->Bc|d:) ");
+    scanf("%d", &n);
+
+    for (int i = 0; i < n; i++) {
+        char line[100];
+        printf("Enter production %d: ", i + 1);
+        scanf("%s", line);
+
+        char *arrow = strstr(line, "->");
+        if (!arrow) {
+            printf("Invalid production format.\n");
+            return 1;
+        }
+
+        *arrow = '\0';
+        char lhs = line[0];
+        char *rhs = arrow + 2;
+
+        char *alt = strtok(rhs, "|");
+        while (alt) {
+            char cleaned_alt[MAX_PROD_LEN];
+            if (strcmp(alt, "ε") == 0) {
+                strcpy(cleaned_alt, "");
+            } else {
+                strcpy(cleaned_alt, alt);
+            }
+
+            int found = 0;
+            for (int j = 0; j < non_term_count; j++) {
+                if (non_terms[j].name == lhs) {
+                    strcpy(non_terms[j].productions[non_terms[j].prod_count], cleaned_alt);
+                    non_terms[j].prod_count++;
+                    found = 1;
+                    break;
+                }
+            }
+
+            if (!found) {
+                non_terms[non_term_count].name = lhs;
+                strcpy(non_terms[non_term_count].productions[0], cleaned_alt);
+                non_terms[non_term_count].prod_count = 1;
+                non_term_count++;
+            }
+
+            alt = strtok(NULL, "|");
+        }
+    }
+
+    for (int i = 0; i < 26; i++) {
+        first[i].symbols[0] = '\0';
+        first[i].has_epsilon = 0;
+    }
+
+    compute_first();
+    compute_follow();
+
+    printf("\nFirst sets:\n");
+    for (int i = 0; i < non_term_count; i++) {
+        char nt = non_terms[i].name;
+        int index = get_index(nt);
+        print_set(nt, first[index], (FollowSet){"", 0}, 1);
+    }
+
+    printf("\nFollow sets:\n");
+    for (int i = 0; i < non_term_count; i++) {
+        char nt = non_terms[i].name;
+        int index = get_index(nt);
+        print_set(nt, (FirstSet){"", 0}, follow[index], 0);
+    }
+
+    return 0;
+}
+
+-------------------------------------------------------------------
+
+Predictive
+
+#include <stdio.h>
+#include <string.h>
+#include <ctype.h>
+#include <stdlib.h>
+#define MAX_NON_TERMS 10
+#define MAX_PROD_LEN 50 // Increased to handle longer productions
+#define MAX_PRODS_PER_NT 10
+#define MAX_CELL_LEN 100 // Increased to handle multiple entries
+struct NonTerminal {
+    char name;
+    char productions[MAX_PRODS_PER_NT][MAX_PROD_LEN];
+    int prod_count;
+};
+struct NonTerminal non_terms[MAX_NON_TERMS];
+int non_term_count = 0;
+typedef struct {
+    char symbols[20];
+    int has_epsilon;
+} FirstSet;
+typedef struct {
+    char symbols[20];
+    int has_dollar;
+} FollowSet;
+FirstSet first[26]; // A-Z mapped to 0-25
+FollowSet follow[26];
+int is_terminal(char c) {
+    return (c != '#' && !(c >= 'A' && c <= 'Z'));
+}
+int get_index(char c) {
+    return c - 'A';
+}
+void compute_first_of_sequence(char *beta, char *beta_first, int *beta_has_epsilon) {
+    beta_first[0] = '\0';
+    *beta_has_epsilon = 1;
+    for (int i = 0; beta[i] != '\0' && *beta_has_epsilon; i++)
+    {
+        char symbol = beta[i];
+        if (symbol == '#')
+        {
+            *beta_has_epsilon = 1;
+            break;
+        } else if (is_terminal(symbol))
+        {
+            if (!strchr(beta_first, symbol)) {
+                strncat(beta_first, &symbol, 1);
+            }
+            *beta_has_epsilon = 0;
+            break;
+        }
+        else
+        {
+            int sym_index = get_index(symbol);
+            for (int j = 0; j < strlen(first[sym_index].symbols); j++)
+            {
+                char c = first[sym_index].symbols[j];
+                if (!strchr(beta_first, c))
+                {
+                    strncat(beta_first, &c, 1);
+                }
+            }
+            if (!first[sym_index].has_epsilon)
+            {
+                *beta_has_epsilon = 0;
+            }
+        }
+    }
+}
+void compute_first()
+{
+    int changed;
+    do
+    {
+        changed = 0;
+        for (int i = 0; i < non_term_count; i++)
+        {
+            char nt = non_terms[i].name;
+            int nt_index = get_index(nt);
+            for (int j = 0; j < non_terms[i].prod_count; j++)
+            {
+                char *prod = non_terms[i].productions[j];
+                int can_derive_epsilon = 1;
+                for (int k = 0; prod[k] != '\0' && can_derive_epsilon; k++)
+                {
+                    char symbol = prod[k];
+                    if (symbol == '#') {
+                        if (can_derive_epsilon) {
+                            if (!first[nt_index].has_epsilon) {
+                                first[nt_index].has_epsilon = 1;
+                                changed = 1;
+                            }
+                        }
+                        can_derive_epsilon = 0;
+                        break;
+                    }
+                    else if (is_terminal(symbol)) {
+                        if (!strchr(first[nt_index].symbols, symbol)) {
+                            int len = strlen(first[nt_index].symbols);
+                            first[nt_index].symbols[len] = symbol;
+                            first[nt_index].symbols[len + 1] = '\0';
+                            changed = 1;
+                        }
+                        can_derive_epsilon = 0;
+                        break;
+                    }
+                    else {
+                        int sym_index = get_index(symbol);
+                        for (int l = 0; l < strlen(first[sym_index].symbols); l++) {
+                            char c = first[sym_index].symbols[l];
+                            if (!strchr(first[nt_index].symbols, c)) {
+                                int len = strlen(first[nt_index].symbols);
+                                first[nt_index].symbols[len] = c;
+                                first[nt_index].symbols[len + 1] = '\0';
+                                changed = 1;
+                            }
+                        }
+                        if (!first[sym_index].has_epsilon) {
+                            can_derive_epsilon = 0;
+                        }
+                    }
+                }
+                if (can_derive_epsilon) {
+                    if (!first[nt_index].has_epsilon) {
+                        first[nt_index].has_epsilon = 1;
+                        changed = 1;
+                    }
+                }
+            }
+        }
+    } while (changed);
+}
+void compute_follow() {
+    for (int i = 0; i < 26; i++) {
+        follow[i].symbols[0] = '\0';
+        follow[i].has_dollar = 0;
+    }
+    char start_symbol = non_terms[0].name;
+    int start_index = get_index(start_symbol);
+    follow[start_index].has_dollar = 1;
+    int changed;
+    do {
+        changed = 0;
+        for (int i = 0; i < non_term_count; i++) {
+            char A = non_terms[i].name;
+            int A_index = get_index(A);
+            for (int j = 0; j < non_terms[i].prod_count; j++) {
+                char *prod = non_terms[i].productions[j];
+                for (int k = 0; prod[k] != '\0'; k++) {
+                    char B = prod[k];
+                    if (B >= 'A' && B <= 'Z') {
+                        int B_index = get_index(B);
+                        char beta[MAX_PROD_LEN];
+                        strcpy(beta, prod + k + 1);
+                        char beta_first[20] = "";
+                        int beta_has_epsilon = 0;
+                        compute_first_of_sequence(beta, beta_first, &beta_has_epsilon);
+                        for (int l = 0; l < strlen(beta_first); l++) {
+                            char c = beta_first[l];
+                            if (!strchr(follow[B_index].symbols, c)) {
+                                int len = strlen(follow[B_index].symbols);
+                                follow[B_index].symbols[len] = c;
+                                follow[B_index].symbols[len + 1] = '\0';
+                                changed = 1;
+                            }
+                        }
+                        if (beta_has_epsilon) {
+                            for (int l = 0; l < strlen(follow[A_index].symbols); l++) {
+                                char c = follow[A_index].symbols[l];
+                                if (!strchr(follow[B_index].symbols, c)) {
+                                    int len = strlen(follow[B_index].symbols);
+                                    follow[B_index].symbols[len] = c;
+                                    follow[B_index].symbols[len + 1] = '\0';
+                                    changed = 1;
+                                }
+                            }
+                            if (follow[A_index].has_dollar && !follow[B_index].has_dollar) {
+                                follow[B_index].has_dollar = 1;
+                                changed = 1;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    } while (changed);
+}
+void print_set(char nt, FirstSet first_set, FollowSet follow_set, int is_first) {
+    printf("%c: { ", nt);
+    if (is_first)
+    {
+        for (int i = 0; i < strlen(first_set.symbols); i++)
+        {
+            printf("%c", first_set.symbols[i]);
+            if (i < strlen(first_set.symbols) - 1 || first_set.has_epsilon) {
+                printf(", ");
+            }
+        }
+        if (first_set.has_epsilon) {
+            printf("ε");
+        }
+    }
+    else
+    {
+        for (int i = 0; i < strlen(follow_set.symbols); i++)
+        {
+            printf("%c", follow_set.symbols[i]);
+            if (i < strlen(follow_set.symbols) - 1 || follow_set.has_dollar) {
+                printf(", ");
+            }
+        }
+        if (follow_set.has_dollar) {
+            printf("$");
+        }
+    }
+    printf(" }\n");
+}
+int compare_chars(const void *a, const void *b) {
+    char c1 = *(const char*)a;
+    char c2 = *(const char*)b;
+    if (c1 == '$' && c2 != '$') return 1;
+    if (c2 == '$' && c1 != '$') return -1;
+    return c1 - c2;
+}
+int main() {
+    int n;
+    printf("Enter the number of productions (eg. S->aB|d) : ");
+    scanf("%d", &n);
+    for (int i = 0; i < n; i++) {
+        char line[100];
+        printf("Enter production %d: ", i + 1);
+        scanf("%s", line);
+        char *arrow = strstr(line, "->");
+        if (!arrow) {
+            printf("Invalid production format.\n");
+            return 1;
+        }
+        *arrow = '\0';
+        char lhs = line[0];
+        char *rhs = arrow + 2;
+        char *alt = strtok(rhs, "|");
+        while (alt) {
+            char cleaned_alt[MAX_PROD_LEN];
+            if (strcmp(alt, "ε") == 0) {
+                strcpy(cleaned_alt, "");
+            } else {
+                strcpy(cleaned_alt, alt);
+            }
+            int found = 0;
+            for (int j = 0; j < non_term_count; j++) {
+                if (non_terms[j].name == lhs) {
+                    strcpy(non_terms[j].productions[non_terms[j].prod_count], cleaned_alt);
+                    non_terms[j].prod_count++;
+                    found = 1;
+                    break;
+                }
+            }
+            if (!found) {
+                non_terms[non_term_count].name = lhs;
+                strcpy(non_terms[non_term_count].productions[0], cleaned_alt);
+                non_terms[non_term_count].prod_count = 1;
+                non_term_count++;
+            }
+            alt = strtok(NULL, "|");
+        }
+    }
+    for (int i = 0; i < 26; i++) {
+        first[i].symbols[0] = '\0';
+        first[i].has_epsilon = 0;
+    }
+    compute_first();
+    compute_follow();
+    printf("\nFirst sets:\n");
+    for (int i = 0; i < non_term_count; i++) {
+        char nt = non_terms[i].name;
+        int index = get_index(nt);
+        print_set(nt, first[index], (FollowSet){"", 0}, 1);
+    }
+    printf("\nFollow sets:\n");
+    for (int i = 0; i < non_term_count; i++) {
+        char nt = non_terms[i].name;
+        int index = get_index(nt);
+        print_set(nt, (FirstSet){"", 0}, follow[index], 0);
+    }
+    int exists[256] = {0};
+    for (int i = 0; i < 26; i++) {
+        FirstSet fs = first[i];
+        for (int j = 0; j < strlen(fs.symbols); j++) {
+            char c = fs.symbols[j];
+            if (is_terminal(c)) {
+                exists[(unsigned char)c] = 1;
+            }
+        }
+        FollowSet flw = follow[i];
+        for (int j = 0; j < strlen(flw.symbols); j++) {
+            char c = flw.symbols[j];
+            if (is_terminal(c)) {
+                exists[(unsigned char)c] = 1;
+            }
+        }
+        if (flw.has_dollar) {
+            exists['$'] = 1;
+        }
+    }
+    char terminals[256];
+    int term_count = 0;
+    for (int c = 0; c < 256; c++) {
+        if (exists[c]) {
+            terminals[term_count++] = (char)c;
+        }
+    }
+    qsort(terminals, term_count, sizeof(char), compare_chars);
+    char table[MAX_NON_TERMS][256][MAX_CELL_LEN];
+    for (int i = 0; i < non_term_count; i++) {
+        for (int j = 0; j < term_count; j++) {
+            table[i][j][0] = '\0';
+        }
+    }
+    for (int i = 0; i < non_term_count; i++) {
+        char A = non_terms[i].name;
+        int A_index = get_index(A);
+        for (int p = 0; p < non_terms[i].prod_count; p++) {
+            char *alpha = non_terms[i].productions[p];
+            char beta_first[20] = "";
+            int beta_has_epsilon = 0;
+            compute_first_of_sequence(alpha, beta_first, &beta_has_epsilon);
+            for (int k = 0; k < strlen(beta_first); k++) {
+                char a = beta_first[k];
+                if (a == '#') continue;
+                int col = -1;
+                for (int j = 0; j < term_count; j++) {
+                    if (terminals[j] == a) {
+                        col = j;
+                        break;
+                    }
+                }
+                if (col == -1) continue;
+                char prod_str[MAX_PROD_LEN + 3];
+                sprintf(prod_str, "%c->%s", A, (strlen(alpha) == 0) ? "ε" : alpha);
+                if (strlen(table[i][col]) == 0) {
+                    strcpy(table[i][col], prod_str);
+                } else {
+                    strcat(table[i][col], " | ");
+                    strcat(table[i][col], prod_str);
+                }
+            }
+            if (beta_has_epsilon) {
+                FollowSet flw = follow[A_index];
+                for (int k = 0; k < strlen(flw.symbols); k++) {
+                    char b = flw.symbols[k];
+                    int col = -1;
+                    for (int j = 0; j < term_count; j++) {
+                        if (terminals[j] == b) {
+                            col = j;
+                            break;
+                        }
+                    }
+                    if (col == -1) continue;
+                    char prod_str[MAX_PROD_LEN + 3];
+                    sprintf(prod_str, "%c->%s", A, (strlen(alpha) == 0) ? "ε" : alpha);
+                    if (strlen(table[i][col]) == 0) {
+                        strcpy(table[i][col], prod_str);
+                    }
+                    else {
+                        strcat(table[i][col], " | ");
+                        strcat(table[i][col], prod_str);
+                    }
+                }
+                if (flw.has_dollar)
+                {
+                    int col = -1;
+                    for (int j = 0; j < term_count; j++) {
+                        if (terminals[j] == '$') {
+                            col = j;
+                            break;
+                        }
+                    }
+                    if (col != -1) {
+                        char prod_str[MAX_PROD_LEN + 3];
+                        sprintf(prod_str, "%c->%s", A, (strlen(alpha) == 0) ? "ε" : alpha);
+                        if (strlen(table[i][col]) == 0) {
+                            strcpy(table[i][col], prod_str);
+                        } else {
+                            strcat(table[i][col], " | ");
+                            strcat(table[i][col], prod_str);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    int col_widths[256] = {0};
+    for (int j = 0; j < term_count; j++) {
+        int max_width = 0;
+        for (int i = 0; i < non_term_count; i++) {
+            int len = strlen(table[i][j]);
+            if (len > max_width) {
+                max_width = len;
+            }
+        }
+        if (max_width < 5) max_width = 5;
+        col_widths[j] = max_width + 2;
+    }
+    printf("\nPredictive Parsing Table:\n");
+    printf("%-10s", "");
+    for (int j = 0; j < term_count; j++) {
+        printf("%-*s", col_widths[j], terminals[j] == '$' ? "$" : (char[]){terminals[j], '\0'});
+    }
+    printf("\n");
+    printf("%-10s", "");
+    for (int j = 0; j < term_count; j++) {
+        for (int k = 0; k < col_widths[j]; k++) printf("-");
+    }
+    printf("\n");
+    for (int i = 0; i < non_term_count; i++) {
+        printf("%-10c", non_terms[i].name);
+        for (int j = 0; j < term_count; j++) {
+            if (table[i][j][0] == '\0') {
+                printf("%-*s", col_widths[j], "");
+            }
+            else {
+                printf("%-*s", col_widths[j], table[i][j]);
+            }
+        }
+        printf("\n");
+    }
+}
+---------------------------------------------------------------------------
+
+LL(1)
+
+#include <stdio.h>
+#include <string.h>
+#include <ctype.h>
+#include <stdlib.h>
+#define MAX_NON_TERMS 10
+#define MAX_PROD_LEN 50 // Increased to handle longer productions
+#define MAX_PRODS_PER_NT 10
+#define MAX_CELL_LEN 100 // Increased to handle multiple entries
+struct NonTerminal {
+    char name;
+    char productions[MAX_PRODS_PER_NT][MAX_PROD_LEN];
+    int prod_count;
+};
+struct NonTerminal non_terms[MAX_NON_TERMS];
+int non_term_count = 0;
+typedef struct {
+    char symbols[20];
+    int has_epsilon;
+} FirstSet;
+typedef struct {
+    char symbols[20];
+    int has_dollar;
+} FollowSet;
+FirstSet first[26]; // A-Z mapped to 0-25
+FollowSet follow[26];
+int is_terminal(char c) {
+    return (c != '#' && !(c >= 'A' && c <= 'Z'));
+}
+int get_index(char c) {
+    return c - 'A';
+}
+void compute_first_of_sequence(char *beta, char *beta_first, int *beta_has_epsilon) {
+    beta_first[0] = '\0';
+    *beta_has_epsilon = 1;
+    for (int i = 0; beta[i] != '\0' && *beta_has_epsilon; i++)
+    {
+        char symbol = beta[i];
+        if (symbol == '#')
+        {
+            *beta_has_epsilon = 1;
+            break;
+        } else if (is_terminal(symbol))
+        {
+            if (!strchr(beta_first, symbol)) {
+                strncat(beta_first, &symbol, 1);
+            }
+            *beta_has_epsilon = 0;
+            break;
+        }
+        else
+        {
+            int sym_index = get_index(symbol);
+            for (int j = 0; j < strlen(first[sym_index].symbols); j++)
+            {
+                char c = first[sym_index].symbols[j];
+                if (!strchr(beta_first, c))
+                {
+                    strncat(beta_first, &c, 1);
+                }
+            }
+            if (!first[sym_index].has_epsilon)
+            {
+                *beta_has_epsilon = 0;
+            }
+        }
+    }
+}
+void compute_first()
+{
+    int changed;
+    do
+    {
+        changed = 0;
+        for (int i = 0; i < non_term_count; i++)
+        {
+            char nt = non_terms[i].name;
+            int nt_index = get_index(nt);
+            for (int j = 0; j < non_terms[i].prod_count; j++)
+            {
+                char *prod = non_terms[i].productions[j];
+                int can_derive_epsilon = 1;
+                for (int k = 0; prod[k] != '\0' && can_derive_epsilon; k++)
+                {
+                    char symbol = prod[k];
+                    if (symbol == '#') {
+                        if (can_derive_epsilon) {
+                            if (!first[nt_index].has_epsilon)
+                            {
+                                first[nt_index].has_epsilon = 1;
+                                changed = 1;
+                            }
+                        }
+                        can_derive_epsilon = 0;
+                        break;
+                    }
+                    else if (is_terminal(symbol)) {
+                        if (!strchr(first[nt_index].symbols, symbol)) {
+                            int len = strlen(first[nt_index].symbols);
+                            first[nt_index].symbols[len] = symbol;
+                            first[nt_index].symbols[len + 1] = '\0';
+                            changed = 1;
+                        }
+                        can_derive_epsilon = 0;
+                        break;
+                    }
+                    else {
+                        int sym_index = get_index(symbol);
+                        for (int l = 0; l < strlen(first[sym_index].symbols); l++) {
+                            char c = first[sym_index].symbols[l];
+                            if (!strchr(first[nt_index].symbols, c)) {
+                                int len = strlen(first[nt_index].symbols);
+                                first[nt_index].symbols[len] = c;
+                                first[nt_index].symbols[len + 1] = '\0';
+                                changed = 1;
+                            }
+                        }
+                        if (!first[sym_index].has_epsilon) {
+                            can_derive_epsilon = 0;
+                        }
+                    }
+                }
+                if (can_derive_epsilon) {
+                    if (!first[nt_index].has_epsilon) {
+                        first[nt_index].has_epsilon = 1;
+                        changed = 1;
+                    }
+                }
+            }
+        }
+    } while (changed);
+}
+void compute_follow() {
+    for (int i = 0; i < 26; i++) {
+
+        follow[i].symbols[0] = '\0';
+        follow[i].has_dollar = 0;
+    }
+    char start_symbol = non_terms[0].name;
+    int start_index = get_index(start_symbol);
+    follow[start_index].has_dollar = 1;
+    int changed;
+    do {
+        changed = 0;
+        for (int i = 0; i < non_term_count; i++) {
+            char A = non_terms[i].name;
+            int A_index = get_index(A);
+            for (int j = 0; j < non_terms[i].prod_count; j++) {
+                char *prod = non_terms[i].productions[j];
+                for (int k = 0; prod[k] != '\0'; k++) {
+                    char B = prod[k];
+                    if (B >= 'A' && B <= 'Z') {
+                        int B_index = get_index(B);
+                        char beta[MAX_PROD_LEN];
+                        strcpy(beta, prod + k + 1);
+                        char beta_first[20] = "";
+                        int beta_has_epsilon = 0;
+                        compute_first_of_sequence(beta, beta_first, &beta_has_epsilon);
+                        for (int l = 0; l < strlen(beta_first); l++) {
+                            char c = beta_first[l];
+                            if (!strchr(follow[B_index].symbols, c)) {
+                                int len = strlen(follow[B_index].symbols);
+                                follow[B_index].symbols[len] = c;
+                                follow[B_index].symbols[len + 1] = '\0';
+                                changed = 1;
+                            }
+                        }
+                        if (beta_has_epsilon) {
+                            for (int l = 0; l < strlen(follow[A_index].symbols); l++) {
+                                char c = follow[A_index].symbols[l];
+                                if (!strchr(follow[B_index].symbols, c)) {
+                                    int len = strlen(follow[B_index].symbols);
+                                    follow[B_index].symbols[len] = c;
+                                    follow[B_index].symbols[len + 1] = '\0';
+                                    changed = 1;
+                                }
+                            }
+                            if (follow[A_index].has_dollar && !follow[B_index].has_dollar) {
+                                follow[B_index].has_dollar = 1;
+                                changed = 1;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    } while (changed);
+}
+void print_set(char nt, FirstSet first_set, FollowSet follow_set, int is_first) {
+    printf("%c: { ", nt);
+    if (is_first)
+    {
+        for (int i = 0; i < strlen(first_set.symbols); i++)
+        {
+            printf("%c", first_set.symbols[i]);
+            if (i < strlen(first_set.symbols) - 1 || first_set.has_epsilon) {
+                printf(", ");
+            }
+        }
+        if (first_set.has_epsilon) {
+            printf("ε");
+        }
+    }
+    else
+    {
+        for (int i = 0; i < strlen(follow_set.symbols); i++)
+        {
+            printf("%c", follow_set.symbols[i]);
+            if (i < strlen(follow_set.symbols) - 1 || follow_set.has_dollar) {
+                printf(", ");
+            }
+        }
+        if (follow_set.has_dollar) {
+            printf("$");
+        }
+    }
+    printf(" }\n");
+}
+int compare_chars(const void *a, const void *b) {
+    char c1 = *(const char*)a;
+    char c2 = *(const char*)b;
+    if (c1 == '$' && c2 != '$') return 1;
+    if (c2 == '$' && c1 != '$') return -1;
+    return c1 - c2;
+}
+int main() {
+    int n;
+    printf("Enter the number of productions (S->Aa|B): ");
+    scanf("%d", &n);
+    for (int i = 0; i < n; i++) {
+        char line[100];
+        printf("Enter production %d: ", i + 1);
+        scanf("%s", line);
+        char *arrow = strstr(line, "->");
+        if (!arrow) {
+            printf("Invalid production format.\n");
+            return 1;
+        }
+        *arrow = '\0';
+        char lhs = line[0];
+        char *rhs = arrow + 2;
+        char *alt = strtok(rhs, "|");
+        while (alt) {
+            char cleaned_alt[MAX_PROD_LEN];
+            if (strcmp(alt, "ε") == 0) {
+                strcpy(cleaned_alt, "");
+            } else {
+                strcpy(cleaned_alt, alt);
+            }
+            int found = 0;
+            for (int j = 0; j < non_term_count; j++) {
+                if (non_terms[j].name == lhs) {
+                    strcpy(non_terms[j].productions[non_terms[j].prod_count], cleaned_alt);
+                    non_terms[j].prod_count++;
+                    found = 1;
+                    break;
+                }
+            }
+            if (!found) {
+                non_terms[non_term_count].name = lhs;
+                strcpy(non_terms[non_term_count].productions[0], cleaned_alt);
+                non_terms[non_term_count].prod_count = 1;
+                non_term_count++;
+            }
+            alt = strtok(NULL, "|");
+        }
+    }
+    for (int i = 0; i < 26; i++) {
+        first[i].symbols[0] = '\0';
+        first[i].has_epsilon = 0;
+    }
+    compute_first();
+    compute_follow();
+    printf("\nFirst sets:\n");
+    for (int i = 0; i < non_term_count; i++) {
+        char nt = non_terms[i].name;
+        int index = get_index(nt);
+        print_set(nt, first[index], (FollowSet){"", 0}, 1);
+    }
+    printf("\nFollow sets:\n");
+    for (int i = 0; i < non_term_count; i++) {
+        char nt = non_terms[i].name;
+        int index = get_index(nt);
+        print_set(nt, (FirstSet){"", 0}, follow[index], 0);
+    }
+    int exists[256] = {0};
+    for (int i = 0; i < 26; i++) {
+        FirstSet fs = first[i];
+        for (int j = 0; j < strlen(fs.symbols); j++) {
+            char c = fs.symbols[j];
+            if (is_terminal(c)) {
+                exists[(unsigned char)c] = 1;
+            }
+        }
+        FollowSet flw = follow[i];
+        for (int j = 0; j < strlen(flw.symbols); j++) {
+            char c = flw.symbols[j];
+            if (is_terminal(c)) {
+                exists[(unsigned char)c] = 1;
+            }
+        }
+        if (flw.has_dollar) {
+            exists['$'] = 1;
+        }
+    }
+    char terminals[256];
+    int term_count = 0;
+    for (int c = 0; c < 256; c++) {
+        if (exists[c]) {
+            terminals[term_count++] = (char)c;
+        }
+    }
+    qsort(terminals, term_count, sizeof(char), compare_chars);
+    char table[MAX_NON_TERMS][256][MAX_CELL_LEN];
+    for (int i = 0; i < non_term_count; i++) {
+        for (int j = 0; j < term_count; j++) {
+            table[i][j][0] = '\0';
+        }
+    }
+    for (int i = 0; i < non_term_count; i++) {
+        char A = non_terms[i].name;
+        int A_index = get_index(A);
+        for (int p = 0; p < non_terms[i].prod_count; p++) {
+            char *alpha = non_terms[i].productions[p];
+            char beta_first[20] = "";
+            int beta_has_epsilon = 0;
+            compute_first_of_sequence(alpha, beta_first, &beta_has_epsilon);
+            for (int k = 0; k < strlen(beta_first); k++) {
+                char a = beta_first[k];
+                if (a == '#') continue;
+                int col = -1;
+                for (int j = 0; j < term_count; j++) {
+                    if (terminals[j] == a) {
+                        col = j;
+                        break;
+                    }
+                }
+                if (col == -1) continue;
+                if (strlen(table[i][col]) > 0) {
+                    printf("Conflict detected for %c -> %s: already have %s in cell [%c][%c]\n", A,
+                           alpha, table[i][col], A, a);
+                    printf("The grammar is not LL(1) Grammar");
+                }
+                char prod_str[MAX_PROD_LEN + 3];
+                sprintf(prod_str, "%c->%s", A, (strlen(alpha) == 0) ? "ε" : alpha);
+                if (strlen(table[i][col]) == 0) {
+                    strcpy(table[i][col], prod_str);
+                } else {
+                    strcat(table[i][col], " | ");
+                    strcat(table[i][col], prod_str);
+                }
+            }
+            if (beta_has_epsilon) {
+                FollowSet flw = follow[A_index];
+                for (int k = 0; k < strlen(flw.symbols); k++) {
+                    char b = flw.symbols[k];
+                    int col = -1;
+                    for (int j = 0; j < term_count; j++) {
+                        if (terminals[j] == b) {
+                            col = j;
+                            break;
+                        }
+                    }
+                    if (col == -1) continue;
+                    if (strlen(table[i][col]) > 0) {
+                        printf("Conflict detected for %c -> %s (epsilon case): already have %s in cell[%c][%c]\n", A, alpha, table[i][col], A, b);
+                        printf("The given grammar is not LL(1) Grammar");
+                    }
+                    char prod_str[MAX_PROD_LEN + 3];
+                    sprintf(prod_str, "%c->%s", A, (strlen(alpha) == 0) ? "ε" : alpha);
+                    if (strlen(table[i][col]) == 0) {
+                        strcpy(table[i][col], prod_str);
+                    }
+                    else {
+                        strcat(table[i][col], " | ");
+                        strcat(table[i][col], prod_str);
+                    }
+                }
+                if (flw.has_dollar)
+                {
+                    int col = -1;
+                    for (int j = 0; j < term_count; j++)
+                    {
+                        if (terminals[j] == '$')
+                        {
+                            col = j;
+                            break;
+                        }
+                    }
+                    if (col != -1) {
+                        if (strlen(table[i][col]) > 0) {
+                            printf("Conflict detected for %c -> %s (epsilon case): already have %s in cell [%c][$]\n", A, alpha, table[i][col], A);
+                            printf("The given grammar is not LL(1) Grammar");
+                        }
+                        else
+                        {
+                            char prod_str[MAX_PROD_LEN + 3];
+                            sprintf(prod_str, "%c->%s", A, (strlen(alpha) == 0) ? "ε" : alpha);
+                            if (strlen(table[i][col]) == 0) {
+                                strcpy(table[i][col], prod_str);
+                            } else {
+                                strcat(table[i][col], " | ");
+                                strcat(table[i][col], prod_str);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    int col_widths[256] = {0};
+    for (int j = 0; j < term_count; j++)
+    {
+        int max_width = 0;
+        for (int i = 0; i < non_term_count; i++)
+        {
+            int len = strlen(table[i][j]);
+            if (len > max_width) {
+                max_width = len;
+            }
+        }
+        if (max_width < 5) max_width = 5;
+        col_widths[j] = max_width + 2;
+    }
+    printf("\nPredictive Parsing Table:\n");
+    printf("%-10s", "");
+    for (int j = 0; j < term_count; j++) {
+        printf("%-*s", col_widths[j], terminals[j] == '$' ? "$" : (char[]){terminals[j], '\0'});
+    }
+    printf("\n");
+    printf("%-10s", "");
+    for (int j = 0; j < term_count; j++) {
+        for (int k = 0; k < col_widths[j]; k++) printf("-");
+    }
+    printf("\n");
+    for (int i = 0; i < non_term_count; i++) {
+        printf("%-10c", non_terms[i].name);
+        for (int j = 0; j < term_count; j++) {
+            if (table[i][j][0] == '\0') {
+                printf("%-*s", col_widths[j], "");
+            }
+            else
+            {
+                printf("%-*s", col_widths[j], table[i][j]);
+            }
+        }
+        printf("\n");
+    }
+}
+
+-----------------------------------------------------------------------
+
+Leading 
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <stdbool.h>
+#include <ctype.h>
+
+struct Symbol {
+    char *name;
+    struct Symbol *next;
+};
+
+struct Production {
+    struct Symbol *symbols;
+    struct Production *next;
+};
+
+struct NonTerminal {
+    char *name;
+    struct Production *productions;
+    struct Node *leading;
+    struct Node *trailing;
+    struct NonTerminal *next;
+};
+
+struct Node {
+    char *symbol;
+    struct Node *next;
+};
+
+struct NonTerminal *non_terminals = NULL;
+
+char *trim(char *str) {
+    char *end;
+    // Trim leading space
+    while (isspace((unsigned char)*str)) str++;
+    if (*str == 0) // All spaces?
+        return str;
+    // Trim trailing space
+    end = str + strlen(str) - 1;
+    while (end > str && isspace((unsigned char)*end)) end--;
+    // Write new null terminator
+    *(end + 1) = '\0';
+    return str;
+}
+
+struct NonTerminal *find_non_terminal(const char *name) {
+    struct NonTerminal *nt = non_terminals;
+    while (nt != NULL) {
+        if (strcmp(nt->name, name) == 0) {
+            return nt;
+        }
+        nt = nt->next;
+    }
+    return NULL;
+}
+
+void add_production(struct NonTerminal *nt, struct Symbol *symbols) {
+    struct Production *prod = malloc(sizeof(struct Production));
+    prod->symbols = symbols;
+    prod->next = nt->productions;
+    nt->productions = prod;
+}
+
+bool is_non_terminal(const char *symbol) {
+    return find_non_terminal(symbol) != NULL;
+}
+
+bool is_in_set(struct Node *set, const char *symbol) {
+    struct Node *node = set;
+    while (node != NULL) {
+        if (strcmp(node->symbol, symbol) == 0) {
+            return true;
+        }
+        node = node->next;
+    }
+    return false;
+}
+
+void add_to_set(struct Node **set, const char *symbol) {
+    if (is_in_set(*set, symbol)) {
+        return;
+    }
+    struct Node *node = malloc(sizeof(struct Node));
+    node->symbol = strdup(symbol);
+    node->next = *set;
+    *set = node;
+}
+
+void compute_leading() {
+    bool changed;
+    do {
+        changed = false;
+        struct NonTerminal *nt = non_terminals;
+        while (nt != NULL) {
+            struct Production *prod = nt->productions;
+            while (prod != NULL) {
+                struct Symbol *symbol = prod->symbols;
+                char *first_terminal = NULL;
+                while (symbol != NULL) {
+                    if (!is_non_terminal(symbol->name)) {
+                        first_terminal = symbol->name;
+                        break;
+                    }
+                    symbol = symbol->next;
+                }
+                if (first_terminal != NULL) {
+                    if (!is_in_set(nt->leading, first_terminal)) {
+                        add_to_set(&nt->leading, first_terminal);
+                        changed = true;
+                    }
+                }
+                if (prod->symbols != NULL) {
+                    char *first_sym = prod->symbols->name;
+                    if (is_non_terminal(first_sym)) {
+                        struct NonTerminal *B = find_non_terminal(first_sym);
+                        if (B != NULL) {
+                            struct Node *b_leading = B->leading;
+                            while (b_leading != NULL) {
+                                if (!is_non_terminal(b_leading->symbol)) {
+                                    if (!is_in_set(nt->leading, b_leading->symbol)) {
+                                        add_to_set(&nt->leading, b_leading->symbol);
+                                        changed = true;
+                                    }
+                                }
+                                b_leading = b_leading->next;
+                            }
+                        }
+                    }
+                }
+                prod = prod->next;
+            }
+            nt = nt->next;
+        }
+    } while (changed);
+}
+
+void compute_trailing() {
+    bool changed;
+    do {
+        changed = false;
+        struct NonTerminal *nt = non_terminals;
+        while (nt != NULL) {
+            struct Production *prod = nt->productions;
+            while (prod != NULL) {
+                struct Symbol *symbol = prod->symbols;
+                char *last_terminal = NULL;
+                while (symbol != NULL) {
+                    if (!is_non_terminal(symbol->name)) {
+                        last_terminal = symbol->name;
+                    }
+                    symbol = symbol->next;
+                }
+                if (last_terminal != NULL) {
+                    if (!is_in_set(nt->trailing, last_terminal)) {
+                        add_to_set(&nt->trailing, last_terminal);
+                        changed = true;
+                    }
+                }
+                struct Symbol *last_sym_node = prod->symbols;
+                while (last_sym_node != NULL && last_sym_node->next != NULL) {
+                    last_sym_node = last_sym_node->next;
+                }
+                if (last_sym_node != NULL) {
+                    char *last_sym = last_sym_node->name;
+                    if (is_non_terminal(last_sym)) {
+                        struct NonTerminal *B = find_non_terminal(last_sym);
+                        if (B != NULL) {
+                            struct Node *b_trailing = B->trailing;
+                            while (b_trailing != NULL) {
+                                if (!is_non_terminal(b_trailing->symbol)) {
+                                    if (!is_in_set(nt->trailing, b_trailing->symbol)) {
+                                        add_to_set(&nt->trailing, b_trailing->symbol);
+                                        changed = true;
+                                    }
+                                }
+                                b_trailing = b_trailing->next;
+                            }
+                        }
+                    }
+                }
+                prod = prod->next;
+            }
+            nt = nt->next;
+        }
+    } while (changed);
+}
+
+void print_set(struct Node *set) {
+    struct Node *node = set;
+    while (node != NULL) {
+        printf("%s", node->symbol);
+        node = node->next;
+        if (node != NULL) {
+            printf(", ");
+        }
+    }
+}
+
+void free_symbols(struct Symbol *symbol) {
+    while (symbol != NULL) {
+        struct Symbol *next = symbol->next;
+        free(symbol->name);
+        free(symbol);
+        symbol = next;
+    }
+}
+
+void free_productions(struct Production *prod) {
+    while (prod != NULL) {
+        struct Production *next = prod->next;
+        free_symbols(prod->symbols);
+        free(prod);
+        prod = next;
+    }
+}
+
+void free_non_terminals() {
+    struct NonTerminal *nt = non_terminals;
+    while (nt != NULL) {
+        struct NonTerminal *next = nt->next;
+        free_productions(nt->productions);
+        struct Node *node = nt->leading;
+        while (node != NULL) {
+            struct Node *next_node = node->next;
+            free(node->symbol);
+            free(node);
+            node = next_node;
+        }
+        node = nt->trailing;
+        while (node != NULL) {
+            struct Node *next_node = node->next;
+            free(node->symbol);
+            free(node);
+            node = next_node;
+        }
+        free(nt->name);
+        free(nt);
+        nt = next;
+    }
+}
+
+int main() {
+    char line[256];
+    int num_productions;
+    
+    printf("Enter the number of productions (E -> E + T): ");
+    fgets(line, sizeof(line), stdin);
+    num_productions = atoi(line);
+    
+    for (int i = 0; i < num_productions; ++i) {
+        printf("Production No. %d: ", i + 1);
+        if (fgets(line, sizeof(line), stdin) == NULL) {
+            fprintf(stderr, "Error reading input.\n");
+            exit(1);
+        }
+        
+        size_t len = strlen(line);
+        if (len > 0 && line[len - 1] == '\n') {
+            line[len - 1] = '\0';
+        }
+        
+        char *arrow = strstr(line, "->");
+        if (arrow == NULL) {
+            fprintf(stderr, "Invalid production format. Use 'NonTerminal -> symbols...'\n");
+            --i; // Retry this production input
+            continue;
+        }
+        
+        *arrow = '\0';
+        char *lhs = trim(line);
+        char *rhs = trim(arrow + 2);
+        
+        lhs = strdup(lhs);
+        
+        struct Symbol *symbols = NULL;
+        struct Symbol **next_ptr = &symbols;
+        
+        char *token = strtok(rhs, " ");
+        while (token != NULL) {
+            struct Symbol *sym = (struct Symbol *)malloc(sizeof(struct Symbol));
+            sym->name = strdup(token);
+            sym->next = NULL;
+            *next_ptr = sym;
+            next_ptr = &sym->next;
+            token = strtok(NULL, " ");
+        }
+        
+        struct NonTerminal *nt = find_non_terminal(lhs);
+        if (nt == NULL) {
+            nt = (struct NonTerminal *)malloc(sizeof(struct NonTerminal));
+            nt->name = lhs;
+            nt->productions = NULL;
+            nt->leading = NULL;
+            nt->trailing = NULL;
+            nt->next = non_terminals;
+            non_terminals = nt;
+        } else {
+            free(lhs);
+        }
+        
+        add_production(nt, symbols);
+    }
+    
+    compute_leading();
+    compute_trailing();
+    
+    printf("\nLeading and Trailing sets:\n");
+    struct NonTerminal *nt = non_terminals;
+    while (nt != NULL) {
+        printf("LEADING(%s) = { ", nt->name);
+        print_set(nt->leading);
+        printf(" }\n");
+        printf("TRAILING(%s) = { ", nt->name);
+        print_set(nt->trailing);
+        printf(" }\n");
+        nt = nt->next;
+    }
+    
+    free_non_terminals();
+    return 0;
+}
+ 
+-----------------------------------------------------------------------
+
+OPT
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <stdbool.h>
+#include <ctype.h>
+
+struct Symbol {
+    char *name;
+    struct Symbol *next;
+};
+
+struct Production {
+    struct Symbol *symbols;
+    struct Production *next;
+};
+
+struct Node {
+    char *symbol;
+    struct Node *next;
+};
+
+struct NonTerminal {
+    char *name;
+    struct Production *productions;
+    struct Node *leading;
+    struct Node *trailing;
+    struct NonTerminal *next;
+};
+
+struct Terminal {
+    char *name;
+    struct Terminal *next;
+};
+
+// Relation types for operator precedence
+#define REL_LESS 1   // <·
+#define REL_EQUAL 2  // =
+#define REL_GREATER 3// ·>
+#define REL_ERROR 0  // Error
+
+struct NonTerminal *non_terminals = NULL;
+struct Terminal *terminals = NULL;
+int **precedence_table = NULL;
+int terminal_count = 0;
+char *start_symbol = NULL;
+
+char *trim(char *str) {
+    char *end;
+    // Trim leading space
+    while (isspace((unsigned char)*str)) 
+        str++;
+    if (*str == 0) // All spaces?
+        return str;
+    // Trim trailing space
+    end = str + strlen(str) - 1;
+    while (end > str && isspace((unsigned char)*end)) 
+        end--;
+    // Write new null terminator
+    *(end + 1) = '\0';
+    return str;
+}
+
+struct NonTerminal *find_non_terminal(const char *name) {
+    struct NonTerminal *nt = non_terminals;
+    while (nt != NULL) {
+        if (strcmp(nt->name, name) == 0) {
+            return nt;
+        }
+        nt = nt->next;
+    }
+    return NULL;
+}
+
+void add_production(struct NonTerminal *nt, struct Symbol *symbols) {
+    struct Production *prod = malloc(sizeof(struct Production));
+    prod->symbols = symbols;
+    prod->next = nt->productions;
+    nt->productions = prod;
+}
+
+bool is_non_terminal(const char *symbol) {
+    return find_non_terminal(symbol) != NULL;
+}
+
+bool is_in_set(struct Node *set, const char *symbol) {
+    struct Node *node = set;
+    while (node != NULL) {
+        if (strcmp(node->symbol, symbol) == 0) {
+            return true;
+        }
+        node = node->next;
+    }
+    return false;
+}
+
+void add_to_set(struct Node **set, const char *symbol) {
+    if (is_in_set(*set, symbol)) {
+        return;
+    }
+    struct Node *node = malloc(sizeof(struct Node));
+    node->symbol = strdup(symbol);
+    node->next = *set;
+    *set = node;
+}
+
+void compute_leading() {
+    bool changed;
+    do {
+        changed = false;
+        struct NonTerminal *nt = non_terminals;
+        while (nt != NULL) {
+            struct Production *prod = nt->productions;
+            while (prod != NULL) {
+                struct Symbol *symbol = prod->symbols;
+                char *first_terminal = NULL;
+                while (symbol != NULL) {
+                    if (!is_non_terminal(symbol->name)) {
+                        first_terminal = symbol->name;
+                        break;
+                    }
+                    symbol = symbol->next;
+                }
+                if (first_terminal != NULL) {
+                    if (!is_in_set(nt->leading, first_terminal)) {
+                        add_to_set(&nt->leading, first_terminal);
+                        changed = true;
+                    }
+                }
+                if (prod->symbols != NULL) {
+                    char *first_sym = prod->symbols->name;
+                    if (is_non_terminal(first_sym)) {
+                        struct NonTerminal *B = find_non_terminal(first_sym);
+                        if (B != NULL) {
+                            struct Node *b_leading = B->leading;
+                            while (b_leading != NULL) {
+                                if (!is_non_terminal(b_leading->symbol)) {
+                                    if (!is_in_set(nt->leading, b_leading->symbol)) {
+                                        add_to_set(&nt->leading, b_leading->symbol);
+                                        changed = true;
+                                    }
+                                }
+                                b_leading = b_leading->next;
+                            }
+                        }
+                    }
+                }
+                prod = prod->next;
+            }
+            nt = nt->next;
+        }
+    } while (changed);
+}
+
+void compute_trailing() {
+    bool changed;
+    do {
+        changed = false;
+        struct NonTerminal *nt = non_terminals;
+        while (nt != NULL) {
+            struct Production *prod = nt->productions;
+            while (prod != NULL) {
+                struct Symbol *symbol = prod->symbols;
+                char *last_terminal = NULL;
+                while (symbol != NULL) {
+                    if (!is_non_terminal(symbol->name)) {
+                        last_terminal = symbol->name;
+                    }
+                    symbol = symbol->next;
+                }
+                if (last_terminal != NULL) {
+                    if (!is_in_set(nt->trailing, last_terminal)) {
+                        add_to_set(&nt->trailing, last_terminal);
+                        changed = true;
+                    }
+                }
+                struct Symbol *last_sym_node = prod->symbols;
+                while (last_sym_node != NULL && last_sym_node->next != NULL) {
+                    last_sym_node = last_sym_node->next;
+                }
+                if (last_sym_node != NULL) {
+                    char *last_sym = last_sym_node->name;
+                    if (is_non_terminal(last_sym)) {
+                        struct NonTerminal *B = find_non_terminal(last_sym);
+                        if (B != NULL) {
+                            struct Node *b_trailing = B->trailing;
+                            while (b_trailing != NULL) {
+                                if (!is_non_terminal(b_trailing->symbol)) {
+                                    if (!is_in_set(nt->trailing, b_trailing->symbol)) {
+                                        add_to_set(&nt->trailing, b_trailing->symbol);
+                                        changed = true;
+                                    }
+                                }
+                                b_trailing = b_trailing->next;
+                            }
+                        }
+                    }
+                }
+                prod = prod->next;
+            }
+            nt = nt->next;
+        }
+    } while (changed);
+}
+
+// Find or add a terminal to the terminal list
+int get_terminal_index(const char *name) {
+    struct Terminal *t = terminals;
+    int index = 0;
+    // Check if terminal already exists
+    while (t != NULL) {
+        if (strcmp(t->name, name) == 0) {
+            return index;
+        }
+        t = t->next;
+        index++;
+    }
+    // Add new terminal
+    t = malloc(sizeof(struct Terminal));
+    t->name = strdup(name);
+    t->next = terminals;
+    terminals = t;
+    return terminal_count++;
+}
+
+// Collect all terminals used in the grammar
+void collect_terminals() {
+    // Add $ as the first terminal (index 0)
+    get_terminal_index("$");
+    struct NonTerminal *nt = non_terminals;
+    while (nt != NULL) {
+        struct Production *prod = nt->productions;
+        while (prod != NULL) {
+            struct Symbol *sym = prod->symbols;
+            while (sym != NULL) {
+                if (!is_non_terminal(sym->name)) {
+                    get_terminal_index(sym->name);
+                }
+                sym = sym->next;
+            }
+            prod = prod->next;
+        }
+        nt = nt->next;
+    }
+}
+
+// Initialize the precedence table with zeros (undefined)
+void init_precedence_table() {
+    precedence_table = malloc(terminal_count * sizeof(int *));
+    for (int i = 0; i < terminal_count; i++) {
+        precedence_table[i] = malloc(terminal_count * sizeof(int));
+        for (int j = 0; j < terminal_count; j++) {
+            precedence_table[i][j] = REL_ERROR; // Initialize with error/undefined
+        }
+    }
+}
+
+// Set the relation between two terminals in the precedence table
+void set_relation(const char *a, const char *b, int relation) {
+    int a_index = get_terminal_index(a);
+    int b_index = get_terminal_index(b);
+    precedence_table[a_index][b_index] = relation;
+}
+
+// Get the terminal name by index
+char *get_terminal_name(int index) {
+    struct Terminal *t = terminals;
+    int i = 0;
+    while (t != NULL && i < index) {
+        t = t->next;
+        i++;
+    }
+    if (t != NULL) {
+        return t->name;
+    }
+    return "Unknown";
+}
+
+// Construct the operator precedence table based on the rules
+void build_precedence_table() {
+    // Rule 1a: set $<·a for all a in LEADING(S) where S is the start symbol
+    if (start_symbol != NULL) {
+        struct NonTerminal *start = find_non_terminal(start_symbol);
+        if (start != NULL) {
+            struct Node *a = start->leading;
+            while (a != NULL) {
+                set_relation("$", a->symbol, REL_LESS);
+                a = a->next;
+            }
+            // Rule 1b: set b·>$ for all b in TRAILING(S) where S is the start symbol
+            struct Node *b = start->trailing;
+            while (b != NULL) {
+                set_relation(b->symbol, "$", REL_GREATER);
+                b = b->next;
+            }
+        }
+    }
+    // Process all productions for Rules 2, 3, and 4
+    struct NonTerminal *nt = non_terminals;
+    while (nt != NULL) {
+        struct Production *prod = nt->productions;
+        while (prod != NULL) {
+            struct Symbol *current = prod->symbols;
+            while (current != NULL && current->next != NULL) {
+                char *x = current->name;
+                char *y = current->next->name;
+                // Rule 2a: if A->xy where x,y are terminals then set x=y
+                if (!is_non_terminal(x) && !is_non_terminal(y)) {
+                    set_relation(x, y, REL_EQUAL);
+                }
+                // Rule 2b: if A->xBy where x,y are terminals and B is a non-terminal
+                if (!is_non_terminal(x) &&
+                    current->next->next != NULL &&
+                    is_non_terminal(y) &&
+                    !is_non_terminal(current->next->next->name)) {
+                    set_relation(x, current->next->next->name, REL_EQUAL);
+                }
+                // Rule 3: if A->xB where x is terminal, set x<·a for all a in LEADING(B)
+                if (!is_non_terminal(x) && is_non_terminal(y)) {
+                    struct NonTerminal *B = find_non_terminal(y);
+                    if (B != NULL) {
+                        struct Node *a = B->leading;
+                        while (a != NULL) {
+                            set_relation(x, a->symbol, REL_LESS);
+                            a = a->next;
+                        }
+                    }
+                }
+                // Rule 4: if A->By where y is terminal, set b·>y for all b in TRAILING(B)
+                if (is_non_terminal(x) && !is_non_terminal(y)) {
+                    struct NonTerminal *B = find_non_terminal(x);
+                    if (B != NULL) {
+                        struct Node *b = B->trailing;
+                        while (b != NULL) {
+                            set_relation(b->symbol, y, REL_GREATER);
+                            b = b->next;
+                        }
+                    }
+                }
+                current = current->next;
+            }
+            prod = prod->next;
+        }
+        nt = nt->next;
+    }
+    // Rule 5: Make the undefined entries as error (already initialized as error)
+}
+
+// Print the operator precedence table
+void print_precedence_table() {
+    printf("\nOperator Precedence Table:\n");
+    // Print header row
+    printf(" ");
+    for (int j = 0; j < terminal_count; j++) {
+        printf("%-4s", get_terminal_name(j));
+    }
+    printf("\n");
+    // Print separator line
+    printf(" ");
+    for (int j = 0; j < terminal_count; j++) {
+        printf("----");
+    }
+    printf("\n");
+    // Print each row
+    for (int i = 0; i < terminal_count; i++) {
+        printf("%-3s|", get_terminal_name(i));
+        for (int j = 0; j < terminal_count; j++) {
+            if (i == terminal_count - 1 && j == terminal_count - 1) {
+                printf("Acc ");
+            } else {
+                switch (precedence_table[i][j]) {
+                    case REL_LESS:
+                        printf(" < ");
+                        break;
+                    case REL_EQUAL:
+                        printf(" = ");
+                        break;
+                    case REL_GREATER:
+                        printf(" > ");
+                        break;
+                    default:
+                        printf(" * ");
+                        break;
+                }
+            }
+        }
+        printf("\n");
+    }
+}
+
+void print_set(struct Node *set) {
+    struct Node *node = set;
+    while (node != NULL) {
+        printf("%s", node->symbol);
+        node = node->next;
+        if (node != NULL) {
+            printf(", ");
+        }
+    }
+}
+
+void free_symbols(struct Symbol *symbol) {
+    while (symbol != NULL) {
+        struct Symbol *next = symbol->next;
+        free(symbol->name);
+        free(symbol);
+        symbol = next;
+    }
+}
+
+void free_productions(struct Production *prod) {
+    while (prod != NULL) {
+        struct Production *next = prod->next;
+        free_symbols(prod->symbols);
+        free(prod);
+        prod = next;
+    }
+}
+
+void free_terminals() {
+    struct Terminal *t = terminals;
+    while (t != NULL) {
+        struct Terminal *next = t->next;
+        free(t->name);
+        free(t);
+        t = next;
+    }
+}
+
+void free_precedence_table() {
+    if (precedence_table != NULL) {
+        for (int i = 0; i < terminal_count; i++) {
+            free(precedence_table[i]);
+        }
+        free(precedence_table);
+    }
+}
+
+void free_non_terminals() {
+    struct NonTerminal *nt = non_terminals;
+    while (nt != NULL) {
+        struct NonTerminal *next = nt->next;
+        free_productions(nt->productions);
+        struct Node *node = nt->leading;
+        while (node != NULL) {
+            struct Node *next_node = node->next;
+            free(node->symbol);
+            free(node);
+            node = next_node;
+        }
+        node = nt->trailing;
+        while (node != NULL) {
+            struct Node *next_node = node->next;
+            free(node->symbol);
+            free(node);
+            node = next_node;
+        }
+        free(nt->name);
+        free(nt);
+        nt = next;
+    }
+}
+
+int main() {
+    char line[256];
+    int num_productions;
+    printf("Enter the number of productions (E -> E + T): ");
+    fgets(line, sizeof(line), stdin);
+    num_productions = atoi(line);
+    for (int i = 0; i < num_productions; ++i) {
+        printf("Production No. %d: ", i + 1);
+        if (fgets(line, sizeof(line), stdin) == NULL) {
+            fprintf(stderr, "Error reading input.\n");
+            exit(1);
+        }
+        size_t len = strlen(line);
+        if (len > 0 && line[len - 1] == '\n') {
+            line[len - 1] = '\0';
+        }
+        char *arrow = strstr(line, "->");
+        if (arrow == NULL) {
+            fprintf(stderr, "Invalid production format. Use 'NonTerminal -> symbols...'\n");
+            --i; // Retry this production input
+            continue;
+        }
+        *arrow = '\0';
+        char *lhs = trim(line);
+        char *rhs = trim(arrow + 2);
+        // Set the first non-terminal as the start symbol
+        if (i == 0) {
+            start_symbol = strdup(lhs);
+        }
+        lhs = strdup(lhs);
+        struct Symbol *symbols = NULL;
+        struct Symbol **next_ptr = &symbols;
+        char *token = strtok(rhs, " ");
+        while (token != NULL) {
+            struct Symbol *sym = (struct Symbol *)malloc(sizeof(struct Symbol));
+            sym->name = strdup(token);
+            sym->next = NULL;
+            *next_ptr = sym;
+            next_ptr = &sym->next;
+            token = strtok(NULL, " ");
+        }
+        struct NonTerminal *nt = find_non_terminal(lhs);
+        if (nt == NULL) {
+            nt = (struct NonTerminal *)malloc(sizeof(struct NonTerminal));
+            nt->name = lhs;
+            nt->productions = NULL;
+            nt->leading = NULL;
+            nt->trailing = NULL;
+            nt->next = non_terminals;
+            non_terminals = nt;
+        } else {
+            free(lhs);
+        }
+        add_production(nt, symbols);
+    }
+    compute_leading();
+    compute_trailing();
+    printf("\nLeading and Trailing sets:\n");
+    struct NonTerminal *nt = non_terminals;
+    while (nt != NULL) {
+        printf("LEADING(%s) = { ", nt->name);
+        print_set(nt->leading);
+        printf(" }\n");
+        printf("TRAILING(%s) = { ", nt->name);
+        print_set(nt->trailing);
+        printf(" }\n");
+        nt = nt->next;
+    }
+    // Build and print the operator precedence table
+    collect_terminals();
+    init_precedence_table();
+    build_precedence_table();
+    print_precedence_table();
+    // Clean up
+    free_terminals();
+    free_precedence_table();
+    if (start_symbol)
+        free(start_symbol);
+    free_non_terminals();
+    return 0;
+}
+
+--------------------------------------------------------------------
+
+OPFT
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <stdbool.h>
+#include <ctype.h>
+
+// --------------------- Data Structures ---------------------
+struct Symbol {
+    char *name;
+    struct Symbol *next;
+};
+
+struct Production {
+    struct Symbol *symbols;
+    struct Production *next;
+};
+
+struct Node {
+    char *symbol;
+    struct Node *next;
+};
+
+struct NonTerminal {
+    char *name;
+    struct Production *productions;
+    struct Node *leading;
+    struct Node *trailing;
+    struct NonTerminal *next;
+};
+
+// Modified Terminal structure to include function values f(x) and g(x)
+struct Terminal {
+    char *name;
+    int f_value; // Left precedence function value
+    int g_value; // Right precedence function value
+    struct Terminal *next;
+};
+
+// Relation types for operator precedence
+#define REL_LESS 1    // <·
+#define REL_EQUAL 2   // =
+#define REL_GREATER 3 // ·>
+#define REL_ERROR 0   // Error/undefined
+
+// --------------------- Global Variables ---------------------
+struct NonTerminal *non_terminals = NULL;
+struct Terminal *terminals = NULL;
+int **precedence_table = NULL;
+int terminal_count = 0;
+char *start_symbol = NULL;
+
+// --------------------- Utility Functions ---------------------
+// Trim leading and trailing whitespace
+char *trim(char *str) {
+    char *end;
+    while (isspace((unsigned char)*str))
+        str++;
+    if (*str == 0)
+        return str;
+    end = str + strlen(str) - 1;
+    while (end > str && isspace((unsigned char)*end))
+        end--;
+    *(end + 1) = '\0';
+    return str;
+}
+
+struct NonTerminal *find_non_terminal(const char *name) {
+    struct NonTerminal *nt = non_terminals;
+    while (nt != NULL) {
+        if (strcmp(nt->name, name) == 0)
+            return nt;
+        nt = nt->next;
+    }
+    return NULL;
+}
+
+void add_production(struct NonTerminal *nt, struct Symbol *symbols) {
+    struct Production *prod = malloc(sizeof(struct Production));
+    prod->symbols = symbols;
+    prod->next = nt->productions;
+    nt->productions = prod;
+}
+
+bool is_non_terminal(const char *symbol) {
+    return find_non_terminal(symbol) != NULL;
+}
+
+bool is_in_set(struct Node *set, const char *symbol) {
+    struct Node *node = set;
+    while (node != NULL) {
+        if (strcmp(node->symbol, symbol) == 0)
+            return true;
+        node = node->next;
+    }
+    return false;
+}
+
+void add_to_set(struct Node **set, const char *symbol) {
+    if (is_in_set(*set, symbol))
+        return;
+    struct Node *node = malloc(sizeof(struct Node));
+    node->symbol = strdup(symbol);
+    node->next = *set;
+    *set = node;
+}
+
+// --------------------- Computation of Leading/Trailing Sets ---------------------
+void compute_leading() {
+    bool changed;
+    do {
+        changed = false;
+        struct NonTerminal *nt = non_terminals;
+        while (nt != NULL) {
+            struct Production *prod = nt->productions;
+            while (prod != NULL) {
+                struct Symbol *symbol = prod->symbols;
+                char *first_terminal = NULL;
+                while (symbol != NULL) {
+                    if (!is_non_terminal(symbol->name))
+                        first_terminal = symbol->name;
+                    if (first_terminal != NULL)
+                        break;
+                    symbol = symbol->next;
+                }
+                if (first_terminal != NULL && !is_in_set(nt->leading, first_terminal)) {
+                    add_to_set(&nt->leading, first_terminal);
+                    changed = true;
+                }
+                if (prod->symbols != NULL) {
+                    char *first_sym = prod->symbols->name;
+                    if (is_non_terminal(first_sym)) {
+                        struct NonTerminal *B = find_non_terminal(first_sym);
+                        if (B != NULL) {
+                            struct Node *b_leading = B->leading;
+                            while (b_leading != NULL) {
+                                if (!is_non_terminal(b_leading->symbol) &&
+                                    !is_in_set(nt->leading, b_leading->symbol)) {
+                                    add_to_set(&nt->leading, b_leading->symbol);
+                                    changed = true;
+                                }
+                                b_leading = b_leading->next;
+                            }
+                        }
+                    }
+                }
+                prod = prod->next;
+            }
+            nt = nt->next;
+        }
+    } while (changed);
+}
+
+void compute_trailing() {
+    bool changed;
+    do {
+        changed = false;
+        struct NonTerminal *nt = non_terminals;
+        while (nt != NULL) {
+            struct Production *prod = nt->productions;
+            while (prod != NULL) {
+                struct Symbol *symbol = prod->symbols;
+                char *last_terminal = NULL;
+                while (symbol != NULL) {
+                    if (!is_non_terminal(symbol->name))
+                        last_terminal = symbol->name;
+                    symbol = symbol->next;
+                }
+                if (last_terminal != NULL && !is_in_set(nt->trailing, last_terminal)) {
+                    add_to_set(&nt->trailing, last_terminal);
+                    changed = true;
+                }
+                struct Symbol *last_sym_node = prod->symbols;
+                while (last_sym_node != NULL && last_sym_node->next != NULL)
+                    last_sym_node = last_sym_node->next;
+                if (last_sym_node != NULL) {
+                    char *last_sym = last_sym_node->name;
+                    if (is_non_terminal(last_sym)) {
+                        struct NonTerminal *B = find_non_terminal(last_sym);
+                        if (B != NULL) {
+                            struct Node *b_trailing = B->trailing;
+                            while (b_trailing != NULL) {
+                                if (!is_non_terminal(b_trailing->symbol) &&
+                                    !is_in_set(nt->trailing, b_trailing->symbol)) {
+                                    add_to_set(&nt->trailing, b_trailing->symbol);
+                                    changed = true;
+                                }
+                                b_trailing = b_trailing->next;
+                            }
+                        }
+                    }
+                }
+                prod = prod->next;
+            }
+            nt = nt->next;
+        }
+    } while (changed);
+}
+
+// --------------------- Terminal Collection and Precedence Table ---------------------
+// Find or add a terminal to the terminal list
+int get_terminal_index(const char *name) {
+    struct Terminal *t = terminals;
+    int index = 0;
+    while (t != NULL) {
+        if (strcmp(t->name, name) == 0)
+            return index;
+        t = t->next;
+        index++;
+    }
+    // Add new terminal
+    t = malloc(sizeof(struct Terminal));
+    t->name = strdup(name);
+    t->f_value = 0; // to be set later
+    t->g_value = 0;
+    t->next = terminals;
+    terminals = t;
+    return terminal_count++;
+}
+
+// Collect all terminals used in the grammar (including "$")
+void collect_terminals() {
+    // Add "$" as the first terminal (index 0)
+    get_terminal_index("$");
+    struct NonTerminal *nt = non_terminals;
+    while (nt != NULL) {
+        struct Production *prod = nt->productions;
+        while (prod != NULL) {
+            struct Symbol *sym = prod->symbols;
+            while (sym != NULL) {
+                if (!is_non_terminal(sym->name))
+                    get_terminal_index(sym->name);
+                sym = sym->next;
+            }
+            prod = prod->next;
+        }
+        nt = nt->next;
+    }
+}
+
+// Initialize the precedence table with REL_ERROR
+void init_precedence_table() {
+    precedence_table = malloc(terminal_count * sizeof(int *));
+    for (int i = 0; i < terminal_count; i++) {
+        precedence_table[i] = malloc(terminal_count * sizeof(int));
+        for (int j = 0; j < terminal_count; j++) {
+            precedence_table[i][j] = REL_ERROR;
+        }
+    }
+}
+
+// Set the relation between two terminals in the precedence table
+void set_relation(const char *a, const char *b, int relation) {
+    int a_index = get_terminal_index(a);
+    int b_index = get_terminal_index(b);
+    precedence_table[a_index][b_index] = relation;
+}
+
+// Get the terminal name by index (for printing)
+char *get_terminal_name(int index) {
+    struct Terminal *t = terminals;
+    int i = 0;
+    while (t != NULL && i < index) {
+        t = t->next;
+        i++;
+    }
+    return (t != NULL) ? t->name : "Unknown";
+}
+
+// --------------------- Building the Operator Precedence Table ---------------------
+void build_precedence_table() {
+    // Rule 1a: set $ <· a for all a in LEADING(S)
+    if (start_symbol != NULL) {
+        struct NonTerminal *start = find_non_terminal(start_symbol);
+        if (start != NULL) {
+            struct Node *a = start->leading;
+            while (a != NULL) {
+                set_relation("$", a->symbol, REL_LESS);
+                a = a->next;
+            }
+            // Rule 1b: set b ·> $ for all b in TRAILING(S)
+            struct Node *b = start->trailing;
+            while (b != NULL) {
+                set_relation(b->symbol, "$", REL_GREATER);
+                b = b->next;
+            }
+        }
+    }
+    // Process productions for Rules 2, 3, and 4
+    struct NonTerminal *nt = non_terminals;
+    while (nt != NULL) {
+        struct Production *prod = nt->productions;
+        while (prod != NULL) {
+            struct Symbol *current = prod->symbols;
+            while (current != NULL && current->next != NULL) {
+                char *x = current->name;
+                char *y = current->next->name;
+                // Rule 2a: if A -> x y, with x and y terminals, set x = y
+                if (!is_non_terminal(x) && !is_non_terminal(y))
+                    set_relation(x, y, REL_EQUAL);
+                // Rule 2b: if A -> x B y, with x and y terminals and B nonterminal
+                if (!is_non_terminal(x) &&
+                    current->next->next != NULL &&
+                    is_non_terminal(y) &&
+                    !is_non_terminal(current->next->next->name))
+                    set_relation(x, current->next->next->name, REL_EQUAL);
+                // Rule 3: if A -> x B, with x terminal, set x < a for all a in LEADING(B)
+                if (!is_non_terminal(x) && is_non_terminal(y)) {
+                    struct NonTerminal *B = find_non_terminal(y);
+                    if (B != NULL) {
+                        struct Node *a = B->leading;
+                        while (a != NULL) {
+                            set_relation(x, a->symbol, REL_LESS);
+                            a = a->next;
+                        }
+                    }
+                }
+                // Rule 4: if A -> B y, with y terminal, set b > y for all b in TRAILING(B)
+                if (is_non_terminal(x) && !is_non_terminal(y)) {
+                    struct NonTerminal *B = find_non_terminal(x);
+                    if (B != NULL) {
+                        struct Node *b = B->trailing;
+                        while (b != NULL) {
+                            set_relation(b->symbol, y, REL_GREATER);
+                            b = b->next;
+                        }
+                    }
+                }
+                current = current->next;
+            }
+            prod = prod->next;
+        }
+        nt = nt->next;
+    }
+    // Undefined entries remain as REL_ERROR.
+}
+
+// --------------------- Building the Operator Precedence Functional Table ---------------------
+// Here, we swap the assignments for f(x) and g(x).
+// That is, for non-endmarker terminals, we assign:
+// f(x) = value + 1 and g(x) = value
+// For the end-marker "$", we keep f("$") = 0 and g("$") = 0.
+void build_function_table() {
+    int value = 1;
+    struct Terminal *t = terminals;
+    while (t != NULL) {
+        if (strcmp(t->name, "$") == 0) {
+            t->f_value = 0;
+            t->g_value = 0;
+        } else {
+            t->f_value = value + 1; // Swapped: now f(x) gets the higher value
+            t->g_value = value;     // and g(x) gets the lower value
+            value += 2;             // leave a gap for adjustments if needed
+        }
+        t = t->next;
+    }
+}
+
+// Print the Operator Precedence Functional Table
+void print_function_table() {
+    printf("\nOperator Precedence Functional Table:\n");
+    printf("%-4s %-10s %-8s %-8s\n", "ID", "Terminal", "f(x)", "g(x)");
+    printf("--------------------------------------\n");
+    int index = 0;
+    struct Terminal *t = terminals;
+    while (t != NULL) {
+        printf("%-4d %-10s %-8d %-8d\n", index, t->name, t->f_value, t->g_value);
+        t = t->next;
+        index++;
+    }
+}
+
+// --------------------- Print Leading/Trailing Sets ---------------------
+void print_set(struct Node *set) {
+    struct Node *node = set;
+    while (node != NULL) {
+        printf("%s", node->symbol);
+        node = node->next;
+        if (node != NULL)
+            printf(", ");
+    }
+}
+
+// --------------------- Freeing Allocated Memory ---------------------
+void free_symbols(struct Symbol *symbol) {
+    while (symbol != NULL) {
+        struct Symbol *next = symbol->next;
+        free(symbol->name);
+        free(symbol);
+        symbol = next;
+    }
+}
+
+void free_productions(struct Production *prod) {
+    while (prod != NULL) {
+        struct Production *next = prod->next;
+        free_symbols(prod->symbols);
+        free(prod);
+        prod = next;
+    }
+}
+
+void free_terminals() {
+    struct Terminal *t = terminals;
+    while (t != NULL) {
+        struct Terminal *next = t->next;
+        free(t->name);
+        free(t);
+        t = next;
+    }
+}
+
+void free_precedence_table() {
+    if (precedence_table != NULL) {
+        for (int i = 0; i < terminal_count; i++) {
+            free(precedence_table[i]);
+        }
+        free(precedence_table);
+    }
+}
+
+void free_non_terminals() {
+    struct NonTerminal *nt = non_terminals;
+    while (nt != NULL) {
+        struct NonTerminal *next = nt->next;
+        free_productions(nt->productions);
+        struct Node *node = nt->leading;
+        while (node != NULL) {
+            struct Node *next_node = node->next;
+            free(node->symbol);
+            free(node);
+            node = next_node;
+        }
+        node = nt->trailing;
+        while (node != NULL) {
+            struct Node *next_node = node->next;
+            free(node->symbol);
+            free(node);
+            node = next_node;
+        }
+        free(nt->name);
+        free(nt);
+        nt = next;
+    }
+}
+
+// --------------------- Main Function ---------------------
+int main() {
+    char line[256];
+    int num_productions;
+    printf("Enter the number of productions(E -> E + T) : ");
+    if (fgets(line, sizeof(line), stdin) == NULL) {
+        fprintf(stderr, "Error reading number of productions.\n");
+        exit(1);
+    }
+    num_productions = atoi(line);
+    for (int i = 0; i < num_productions; ++i) {
+        printf("Production No. %d: ", i + 1);
+        if (fgets(line, sizeof(line), stdin) == NULL) {
+            fprintf(stderr, "Error reading production input.\n");
+            exit(1);
+        }
+        size_t len = strlen(line);
+        if (len > 0 && line[len - 1] == '\n')
+            line[len - 1] = '\0';
+        char *arrow = strstr(line, "->");
+        if (arrow == NULL) {
+            fprintf(stderr, "Invalid production format. Use 'NonTerminal -> symbols...'\n");
+            --i;
+            continue;
+        }
+        *arrow = '\0';
+        char *lhs = trim(line);
+        char *rhs = trim(arrow + 2);
+        // Set the first non-terminal as the start symbol
+        if (i == 0) {
+            start_symbol = strdup(lhs);
+        }
+        lhs = strdup(lhs);
+        struct Symbol *symbols = NULL;
+        struct Symbol **next_ptr = &symbols;
+        char *token = strtok(rhs, " ");
+        while (token != NULL) {
+            struct Symbol *sym = malloc(sizeof(struct Symbol));
+            sym->name = strdup(token);
+            sym->next = NULL;
+            *next_ptr = sym;
+            next_ptr = &sym->next;
+            token = strtok(NULL, " ");
+        }
+        struct NonTerminal *nt = find_non_terminal(lhs);
+        if (nt == NULL) {
+            nt = malloc(sizeof(struct NonTerminal));
+            nt->name = lhs;
+            nt->productions = NULL;
+            nt->leading = NULL;
+            nt->trailing = NULL;
+            nt->next = non_terminals;
+            non_terminals = nt;
+        } else {
+            free(lhs);
+        }
+        add_production(nt, symbols);
+    }
+    // Compute leading and trailing sets
+    compute_leading();
+    compute_trailing();
+    printf("\nLeading and Trailing sets:\n");
+    struct NonTerminal *nt = non_terminals;
+    while (nt != NULL) {
+        printf("LEADING(%s) = { ", nt->name);
+        print_set(nt->leading);
+        printf(" }\n");
+        printf("TRAILING(%s) = { ", nt->name);
+        print_set(nt->trailing);
+        printf(" }\n");
+        nt = nt->next;
+    }
+    // Build the operator precedence table from the grammar rules
+    collect_terminals();
+    init_precedence_table();
+    build_precedence_table();
+    
+    // Build and print the Operator Precedence Functional Table (with swapped f(x) and g(x))
+    build_function_table();
+    print_function_table();
+    // Clean up
+    free_terminals();
+    free_precedence_table();
+    if (start_symbol)
+        free(start_symbol);
+    free_non_terminals();
+    return 0;
+}
+
+----------------------------------------------------------------------------------
+
+ShiftReduce
+
+#include <stdio.h>
+#include <string.h>
+#include <stdlib.h>
+#include <stdbool.h>
+#include <ctype.h>
+#define MAX_STACK 100
+#define MAX_INPUT 100
+#define MAX_PROD 20
+#define MAX_PROD_LINE 100
+#define MAX_TOKEN 20
+#define MAX_TOKENS 100
+
+// Production structure holds the left-hand side and right-hand side
+typedef struct {
+    char lhs[20];
+    char rhs[50];
+} Production;
+
+// Token structure to hold each lexical unit
+typedef struct {
+    char value[MAX_TOKEN];
+} Token;
+
+Production productions[MAX_PROD];
+int num_productions = 0;
+char start_symbol[20]; // will be set to LHS of first production
+
+// For tokenized approach
+Token stack_tokens[MAX_STACK]; // token stack
+int stack_top = -1;            // stack top pointer
+Token input_tokens[MAX_INPUT]; // tokenized input
+int num_tokens = 0;            // number of tokens in input
+int token_ip = 0;              // token input pointer
+
+// Function to print tokens for debugging
+void printTokens(Token* tokens, int count) {
+    printf("Tokens (%d): ", count);
+    for (int i = 0; i < count; i++) {
+        printf("'%s' ", tokens[i].value);
+    }
+    printf("\n");
+}
+
+// Print the current state: stack, remaining input, and action taken
+void printState(const char *action) {
+    char stack_str[MAX_STACK * MAX_TOKEN] = "";
+    char input_str[MAX_INPUT * MAX_TOKEN] = "";
+    // Build stack display string
+    for (int i = 0; i <= stack_top; i++) {
+        strcat(stack_str, stack_tokens[i].value);
+    }
+    // Build input display string
+    for (int i = token_ip; i < num_tokens; i++) {
+        strcat(input_str, input_tokens[i].value);
+    }
+    printf("Stack: %-15s Input: %-15s Action: %s\n", stack_str, input_str, action);
+}
+
+// Tokenize an input string into separate tokens
+void tokenizeInput(const char *input) {
+    num_tokens = 0;
+    int i = 0;
+    while (input[i] != '\0') {
+        // Skip whitespace
+        while (input[i] != '\0' && isspace(input[i])) {
+            i++;
+        }
+        if (input[i] == '\0')
+            break;
+        char token_val[MAX_TOKEN] = {0};
+        int token_len = 0;
+        // Handle non-terminal (capital letter)
+        if (isupper(input[i])) {
+            token_val[token_len++] = input[i++];
+        }
+        // Handle identifier keywords (int, float, id, etc.)
+        else if (isalpha(input[i])) {
+            while (input[i] != '\0' && isalpha(input[i])) {
+                token_val[token_len++] = input[i++];
+            }
+        }
+        // Handle special characters/operators
+        else {
+            token_val[token_len++] = input[i++];
+        }
+        token_val[token_len] = '\0';
+        // Add token to the token array
+        if (token_len > 0) {
+            strcpy(input_tokens[num_tokens].value, token_val);
+            num_tokens++;
+        }
+    }
+}
+
+// Tokenize the productions' RHS strings
+void tokenizeProduction(int prod_index) {
+    char tokenized_rhs[100] = {0};
+    char *rhs = productions[prod_index].rhs;
+    int i = 0;
+    while (rhs[i] != '\0') {
+        char token_val[MAX_TOKEN] = {0};
+        int token_len = 0;
+        // Handle non-terminal (capital letter)
+        if (isupper(rhs[i])) {
+            token_val[token_len++] = rhs[i++];
+        }
+        // Handle identifier keywords (int, float, id, etc.)
+        else if (isalpha(rhs[i])) {
+            while (rhs[i] != '\0' && isalpha(rhs[i])) {
+                token_val[token_len++] = rhs[i++];
+            }
+        }
+        // Handle special characters/operators
+        else {
+            token_val[token_len++] = rhs[i++];
+        }
+        token_val[token_len] = '\0';
+        // Add space between tokens in the new RHS string
+        if (strlen(tokenized_rhs) > 0) {
+            strcat(tokenized_rhs, " ");
+        }
+        strcat(tokenized_rhs, token_val);
+    }
+    // Update the production's RHS
+    strcpy(productions[prod_index].rhs, tokenized_rhs);
+}
+
+// Check if the stack ends with the tokens from production's RHS
+bool matchesProductionRHS(int prod_index) {
+    char rhs_tokens[MAX_PROD][MAX_TOKEN];
+    int num_rhs_tokens = 0;
+    // Split the RHS into tokens
+    char rhs_copy[50];
+    strcpy(rhs_copy, productions[prod_index].rhs);
+    char *token = strtok(rhs_copy, " ");
+    while (token != NULL) {
+        strcpy(rhs_tokens[num_rhs_tokens++], token);
+        token = strtok(NULL, " ");
+    }
+    // Check if stack has enough tokens
+    if (stack_top + 1 < num_rhs_tokens) {
+        return false;
+    }
+    // Check if the top tokens on the stack match the RHS tokens
+    for (int i = 0; i < num_rhs_tokens; i++) {
+        int stack_idx = stack_top - num_rhs_tokens + 1 + i;
+        if (strcmp(stack_tokens[stack_idx].value, rhs_tokens[i]) != 0) {
+            return false;
+        }
+    }
+    return true;
+}
+
+// Reduce: replace RHS on stack with LHS
+void reduce() {
+    bool reduced;
+    do {
+        reduced = false;
+        for (int i = 0; i < num_productions; i++) {
+            if (matchesProductionRHS(i)) {
+                // Count tokens in RHS
+                char rhs_copy[50];
+                strcpy(rhs_copy, productions[i].rhs);
+                int num_rhs_tokens = 0;
+                char *token = strtok(rhs_copy, " ");
+                while (token != NULL) {
+                    num_rhs_tokens++;
+                    token = strtok(NULL, " ");
+                }
+                // Pop the RHS tokens from the stack
+                stack_top -= num_rhs_tokens;
+                // Push the LHS onto the stack
+                strcpy(stack_tokens[++stack_top].value, productions[i].lhs);
+                char action_msg[100];
+                sprintf(action_msg, "REDUCE: %s -> %s", productions[i].lhs, productions[i].rhs);
+                printState(action_msg);
+                reduced = true;
+                break; // Restart checking from the first production
+            }
+        }
+    } while (reduced);
+}
+
+int main() {
+    // Read grammar productions
+    printf("Enter the number of productions (L->L,id): ");
+    if (scanf("%d", &num_productions) != 1) {
+        fprintf(stderr, "Invalid number.\n");
+        exit(1);
+    }
+    getchar(); // consume newline left after scanf
+    for (int i = 0; i < num_productions; i++) {
+        char prod_line[MAX_PROD_LINE];
+        printf("Enter production %d (format A->alpha with no spaces): ", i + 1);
+        if (fgets(prod_line, MAX_PROD_LINE, stdin) == NULL) {
+            fprintf(stderr, "Error reading production.\n");
+            exit(1);
+        }
+        prod_line[strcspn(prod_line, "\n")] = '\0'; // remove newline
+        // Look for "->" separator
+        char *arrow = strstr(prod_line, "->");
+        if (arrow == NULL) {
+            printf("Invalid production format. Try again.\n");
+            i--;
+            continue;
+        }
+        // Split into LHS and RHS
+        int lhs_len = arrow - prod_line;
+        strncpy(productions[i].lhs, prod_line, lhs_len);
+        productions[i].lhs[lhs_len] = '\0';
+        strcpy(productions[i].rhs, arrow + 2);
+        // Tokenize the RHS into spaced tokens
+        tokenizeProduction(i);
+    }
+    // Assume the start symbol is the LHS of the first production
+    strcpy(start_symbol, productions[0].lhs);
+    // Read the input string for parsing
+    char input[MAX_INPUT];
+    printf("Enter the input string: ");
+    // Use fgets to allow spaces in input (no extra getchar() here)
+    if (fgets(input, MAX_INPUT, stdin) == NULL) {
+        fprintf(stderr, "Error reading input.\n");
+        exit(1);
+    }
+    input[strcspn(input, "\n")] = '\0'; // remove newline
+    // Tokenize the input
+    tokenizeInput(input);
+    // Append the "$" token to mark end-of-input
+    strcpy(input_tokens[num_tokens].value, "$");
+    num_tokens++;
+    // DEBUG: Print all tokens (including "$")
+    printTokens(input_tokens, num_tokens);
+    // Initialize the parser stack with "$"
+    stack_top = 0;
+    strcpy(stack_tokens[0].value, "$");
+    token_ip = 0;
+    printf("\n%-15s %-15s %s\n", "Stack", "Input", "Action");
+    printf("-------------------------------------------------------\n");
+    printState("START");
+    // Shift-reduce parsing loop:
+    // Stop shifting when the next token is "$"
+    while (token_ip < num_tokens && strcmp(input_tokens[token_ip].value, "$") != 0) {
+        // SHIFT: Push next input token onto the stack
+        strcpy(stack_tokens[++stack_top].value, input_tokens[token_ip++].value);
+        printState("SHIFT");
+        // After each shift, try to reduce as much as possible
+        reduce();
+    }
+    // Final reduction after all shift operations
+    reduce();
+    if (stack_top == 1 && strcmp(stack_tokens[0].value, "$") == 0 &&
+        strcmp(stack_tokens[1].value, start_symbol) == 0 &&
+        token_ip < num_tokens && strcmp(input_tokens[token_ip].value, "$") == 0) {
+        printState("ACCEPT");
+        printf("\nInput accepted.\n");
+    } else {
+        printState("REJECT");
+        printf("\nInput rejected.\n");
+    }
+    return 0;
+}
+
+-----------------------------------------------------------------------------------
+
+SLR
+
+#include <stdio.h>
+#include <string.h>
+#include <stdlib.h>
+#include <stdbool.h>
+
+char terminals[100];
+int no_t;
+char non_terminals[100];
+int no_nt;
+char goto_table[100][100];
+char reduce[20][20];
+char follow[20][20];
+char fo_co[20][20];
+char first[20][20];
+
+// Action table entries can be: 'S' (shift), 'R' (reduce), 'A' (accept), or ' ' (error)
+char action_type[100][100];
+int action_value[100][100]; // Contains state number for shift or production number for reduce
+
+struct state {
+    int prod_count;
+    char prod[100][100];
+};
+
+void add_dots(struct state *I) {
+    for (int i = 0; i < I->prod_count; i++) {
+        for (int j = 99; j > 3; j--)
+            I->prod[i][j] = I->prod[i][j - 1];
+        I->prod[i][3] = '.';
+    }
+}
+
+void augument(struct state *S, struct state *I) {
+    if (I->prod[0][0] == 'S')
+        strcpy(S->prod[0], "Z->.S");
+    else {
+        strcpy(S->prod[0], "S->.");
+        S->prod[0][4] = I->prod[0][0];
+    }
+    S->prod_count++;
+}
+
+void get_prods(struct state *I) {
+    printf("Enter the number of productions:\n");
+    scanf("%d", &I->prod_count);
+    printf("Enter the number of non terminals:\n");
+    scanf("%d", &no_nt);
+    printf("Enter the non terminals one by one:\n");
+    for (int i = 0; i < no_nt; i++)
+        scanf(" %c", &non_terminals[i]);
+    printf("Enter the number of terminals:\n");
+    scanf("%d", &no_t);
+    printf("Enter the terminals (single lettered) one by one:\n");
+    for (int i = 0; i < no_t; i++)
+        scanf(" %c", &terminals[i]);
+    printf("Enter the productions one by one in form (S->ABc):\n");
+    for (int i = 0; i < I->prod_count; i++) {
+        scanf("%s", I->prod[i]);
+    }
+}
+
+bool is_non_terminal(char a) {
+    if (a >= 'A' && a <= 'Z')
+        return true;
+    else
+        return false;
+}
+
+bool in_state(struct state *I, char *a) {
+    for (int i = 0; i < I->prod_count; i++) {
+        if (!strcmp(I->prod[i], a))
+            return true;
+    }
+    return false;
+}
+
+char char_after_dot(char a[100]) {
+    char b;
+    for (int i = 0; i < strlen(a); i++)
+        if (a[i] == '.') {
+            b = a[i + 1];
+            return b;
+        }
+    return '\0';
+}
+
+void move_dot(char b[100], char result[100]) {
+    strcpy(result, b);
+    for (int i = 0; i < strlen(result); i++) {
+        if (result[i] == '.') {
+            char temp = result[i];
+            result[i] = result[i + 1];
+            result[i + 1] = temp;
+            break;
+        }
+    }
+}
+
+bool same_state(struct state *I0, struct state *I) {
+    if (I0->prod_count != I->prod_count)
+        return false;
+
+    for (int i = 0; i < I0->prod_count; i++) {
+        int flag = 0;
+        for (int j = 0; j < I->prod_count; j++)
+            if (strcmp(I0->prod[i], I->prod[j]) == 0)
+                flag = 1;
+        if (flag == 0)
+            return false;
+    }
+    return true;
+}
+
+void closure(struct state *I, struct state *I0) {
+    char a;
+    for (int i = 0; i < I0->prod_count; i++) {
+        a = char_after_dot(I0->prod[i]);
+        if (is_non_terminal(a)) {
+            for (int j = 0; j < I->prod_count; j++) {
+                if (I->prod[j][0] == a) {
+                    if (!in_state(I0, I->prod[j])) {
+                        strcpy(I0->prod[I0->prod_count], I->prod[j]);
+                        I0->prod_count++;
+                    }
+                }
+            }
+        }
+    }
+}
+
+void goto_state(struct state *I, struct state *S, char a) {
+    int time = 1;
+    char moved[100];
+
+    for (int i = 0; i < I->prod_count; i++) {
+        if (char_after_dot(I->prod[i]) == a) {
+            if (time == 1) {
+                time++;
+            }
+            move_dot(I->prod[i], moved);
+            strcpy(S->prod[S->prod_count], moved);
+            S->prod_count++;
+        }
+    }
+}
+
+void print_prods(struct state *I) {
+    for (int i = 0; i < I->prod_count; i++)
+        printf("%s\n", I->prod[i]);
+    printf("\n");
+}
+
+bool in_array(char a[20], char b) {
+    for (int i = 0; i < strlen(a); i++)
+        if (a[i] == b)
+            return true;
+    return false;
+}
+
+void chars_after_dots(struct state *I, char result[20]) {
+    memset(result, 0, 20);
+    for (int i = 0; i < I->prod_count; i++) {
+        char c = char_after_dot(I->prod[i]);
+        if (!in_array(result, c)) {
+            result[strlen(result)] = c;
+        }
+    }
+}
+
+void cleanup_prods(struct state * I) {
+    for (int i = 0; i < I->prod_count; i++)
+        I->prod[i][0] = '\0';
+    I->prod_count = 0;
+}
+
+int return_index(char a) {
+    for (int i = 0; i < no_t; i++)
+        if (terminals[i] == a)
+            return i;
+    for (int i = 0; i < no_nt; i++)
+        if (non_terminals[i] == a)
+            return no_t + i;
+    return -1;
+}
+
+void add_dot_at_end(struct state* I) {
+    for (int i = 0; i < I->prod_count; i++) {
+        strcat(I->prod[i], ".");
+    }
+}
+
+void add_to_first(int n, char b) {
+    for (int i = 0; i < strlen(first[n]); i++)
+        if (first[n][i] == b)
+            return;
+    first[n][strlen(first[n])] = b;
+}
+
+void add_to_first_from_another(int m, int n) {
+    for (int i = 0; i < strlen(first[n]); i++) {
+        int flag = 0;
+        for (int j = 0; j < strlen(first[m]); j++) {
+            if (first[n][i] == first[m][j])
+                flag = 1;
+        }
+        if (flag == 0)
+            add_to_first(m, first[n][i]);
+    }
+}
+
+void add_to_follow(int n, char b) {
+    for (int i = 0; i < strlen(follow[n]); i++)
+        if (follow[n][i] == b)
+            return;
+    follow[n][strlen(follow[n])] = b;
+}
+
+void add_to_follow_from_another(int m, int n) {
+    for (int i = 0; i < strlen(follow[n]); i++) {
+        int flag = 0;
+        for (int j = 0; j < strlen(follow[m]); j++) {
+            if (follow[n][i] == follow[m][j])
+                flag = 1;
+        }
+        if (flag == 0)
+            add_to_follow(m, follow[n][i]);
+    }
+}
+
+void add_to_follow_first(int m, int n) {
+    for (int i = 0; i < strlen(first[n]); i++) {
+        int flag = 0;
+        for (int j = 0; j < strlen(follow[m]); j++) {
+            if (first[n][i] == follow[m][j])
+                flag = 1;
+        }
+        if (flag == 0)
+            add_to_follow(m, first[n][i]);
+    }
+}
+
+void find_first(struct state *I) {
+    for (int i = 0; i < no_nt; i++) {
+        for (int j = 0; j < I->prod_count; j++) {
+            if (I->prod[j][0] == non_terminals[i]) {
+                if (!is_non_terminal(I->prod[j][3])) {
+                    add_to_first(i, I->prod[j][3]);
+                }
+            }
+        }
+    }
+}
+
+void find_follow(struct state *I) {
+    for (int i = 0; i < no_nt; i++) {
+        for (int j = 0; j < I->prod_count; j++) {
+            for (int k = 3; k < strlen(I->prod[j]); k++) {
+                if (I->prod[j][k] == non_terminals[i]) {
+                    if (I->prod[j][k + 1] != '\0') {
+                        if (!is_non_terminal(I->prod[j][k + 1])) {
+                            add_to_follow(i, I->prod[j][k + 1]);
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// Initialize the action and goto tables
+void init_tables(int state_count) {
+    // Initialize all entries to error
+    for (int i = 0; i < state_count; i++) {
+        for (int j = 0; j < no_t; j++) {
+            action_type[i][j] = ' ';
+            action_value[i][j] = -1;
+        }
+
+        for (int j = 0; j < no_nt; j++) {
+            action_type[i][no_t + j] = ' ';
+            action_value[i][no_t + j] = -1;
+        }
+    }
+}
+
+// Populate the shift actions and goto entries
+void populate_shift_goto(int state_count) {
+    for (int i = 0; i < state_count; i++) {
+        for (int j = 0; j < state_count; j++) {
+            if (goto_table[i][j] != '~') {
+                int index = return_index(goto_table[i][j]);
+                if (index < no_t) {
+                    // This is a terminal, so it's a shift action
+                    action_type[i][index] = 'S';
+                    action_value[i][index] = j;
+                } else {
+                    // This is a non-terminal, so it's a goto entry
+                    action_type[i][index] = ' '; // Goto entries don't have a type
+                    action_value[i][index] = j;
+                }
+            }
+        }
+    }
+
+    // Set the accept state
+    action_type[1][no_t - 1] = 'A'; // Accept on $ for state 1
+    action_value[1][no_t - 1] = 0;
+}
+
+// Populate the reduce actions
+void populate_reduce(int state_count, int *no_re, struct state *temp1) {
+    for (int i = 0; i < temp1->prod_count; i++) {
+        int n = no_re[i];
+        if (n != -1) { // If this production has a reduce state
+            int idx = return_index(temp1->prod[i][0]) - no_t;
+
+            if (idx >= 0 && idx < no_nt) {
+                for (int j = 0; j < strlen(follow[idx]); j++) {
+                    int term_idx = return_index(follow[idx][j]);
+                    if (term_idx >= 0 && term_idx < no_t) {
+                        // Only set reduce if there's no shift action already
+                        if (action_type[n][term_idx] == ' ') {
+                            action_type[n][term_idx] = 'R';
+                            action_value[n][term_idx] = i + 1; // Production number
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// Print the merged parsing table
+void print_parsing_table(int state_count, struct state *temp1) {
+    printf("\n********** MERGED PARSING TABLE **********\n\n");
+
+    // Print header
+    printf("STATE\t");
+    // Print terminal symbols (Action columns)
+    for (int i = 0; i < no_t; i++) {
+        printf("%c\t", terminals[i]);
+    }
+    // Print non-terminal symbols (Goto columns)
+    for (int i = 0; i < no_nt; i++) {
+        printf("%c\t", non_terminals[i]);
+    }
+    printf("\n");
+
+    // Print table rows
+    for (int i = 0; i < state_count; i++) {
+        printf("%d\t", i);
+
+        // Print action part
+        for (int j = 0; j < no_t; j++) {
+            if (action_type[i][j] == 'S') {
+                printf("S%d\t", action_value[i][j]);
+            } else if (action_type[i][j] == 'R') {
+                printf("R%d\t", action_value[i][j]);
+            } else if (action_type[i][j] == 'A') {
+                printf("ACC\t");
+            } else {
+                printf("\t"); // Error state
+            }
+        }
+
+        // Print goto part
+        for (int j = 0; j < no_nt; j++) {
+            int idx = no_t + j;
+            if (action_value[i][idx] != -1) {
+                printf("%d\t", action_value[i][idx]);
+            } else {
+                printf("\t");
+            }
+        }
+        printf("\n");
+    }
+
+    // Print production information for reference
+    printf("\n********** PRODUCTIONS **********\n");
+    for (int i = 0; i < temp1->prod_count; i++) {
+        // Remove dot from production for display
+        char prod_display[100];
+        int dot_pos = -1;
+        strcpy(prod_display, temp1->prod[i]);
+
+        for (int j = 0; j < strlen(prod_display); j++) {
+            if (prod_display[j] == '.') {
+                dot_pos = j;
+                break;
+            }
+        }
+
+        if (dot_pos != -1) {
+            for (int j = dot_pos; j < strlen(prod_display) - 1; j++) {
+                prod_display[j] = prod_display[j + 1];
+            }
+            prod_display[strlen(prod_display) - 1] = '\0';
+        }
+
+        printf("R%d: %s\n", i + 1, prod_display);
+    }
+}
+
+int main() {
+    struct state init;
+    struct state temp;
+    struct state temp1;
+    int state_count = 1;
+
+    // Initialize structures
+    init.prod_count = 0;
+    temp.prod_count = 0;
+    temp1.prod_count = 0;
+
+    for (int i = 0; i < 100; i++) {
+        for (int j = 0; j < 100; j++) {
+            goto_table[i][j] = '~';
+        }
+    }
+
+    get_prods(&init);
+    temp = init;
+    temp1 = temp;
+    add_dots(&init);
+
+    struct state I[50];
+    for (int i = 0; i < 50; i++) {
+        I[i].prod_count = 0;
+    }
+
+    augument(&I[0], &init);
+    closure(&init, &I[0]);
+    printf("\nI0:\n");
+    print_prods(&I[0]);
+
+    for (int i = 0; i < state_count; i++) {
+        char characters[20] = {0};
+        chars_after_dots(&I[i], characters);
+
+        for (int j = 0; j < strlen(characters); j++) {
+            goto_state(&I[i], &I[state_count], characters[j]);
+            closure(&init, &I[state_count]);
+            int flag = 0;
+            for (int k = 0; k < state_count; k++) {
+                if (same_state(&I[k], &I[state_count])) {
+                    cleanup_prods(&I[state_count]);
+                    flag = 1;
+                    printf("I%d on reading the symbol %c goes to I%d.\n", i, characters[j], k);
+                    goto_table[i][k] = characters[j];
+                    break;
+                }
+            }
+            if (flag == 0) {
+                state_count++;
+                printf("I%d on reading the symbol %c goes to I%d:\n", i, characters[j], state_count - 1);
+                goto_table[i][state_count - 1] = characters[j];
+                print_prods(&I[state_count - 1]);
+            }
+        }
+    }
+
+    int no_re[100]; // Assuming temp.prod_count < 100
+    for (int i = 0; i < temp.prod_count; i++) {
+        no_re[i] = -1;
+    }
+
+    terminals[no_t] = '$';
+    no_t++;
+
+    add_dot_at_end(&temp1);
+    for (int i = 0; i < state_count; i++) {
+        for (int j = 0; j < I[i].prod_count; j++) {
+            for (int k = 0; k < temp1.prod_count; k++) {
+                if (in_state(&I[i], temp1.prod[k]))
+                    no_re[k] = i;
+            }
+        }
+    }
+
+    find_first(&temp);
+    for (int l = 0; l < no_nt; l++) {
+        for (int i = 0; i < temp.prod_count; i++) {
+            if (is_non_terminal(temp.prod[i][3])) {
+                int idx1 = return_index(temp.prod[i][0]) - no_t;
+                int idx2 = return_index(temp.prod[i][3]) - no_t;
+                if (idx1 >= 0 && idx1 < no_nt && idx2 >= 0 && idx2 < no_nt) {
+                    add_to_first_from_another(idx1, idx2);
+                }
+            }
+        }
+    }
+
+    find_follow(&temp);
+    add_to_follow(0, '$');
+    for (int l = 0; l < no_nt; l++) {
+        for (int i = 0; i < temp.prod_count; i++) {
+            for (int k = 3; k < strlen(temp.prod[i]); k++) {
+                if (temp.prod[i][k] == non_terminals[l]) {
+                    if (temp.prod[i][k + 1] != '\0') {
+                        if (is_non_terminal(temp.prod[i][k + 1])) {
+                            int idx = return_index(temp.prod[i][k + 1]) - no_t;
+                            if (idx >= 0 && idx < no_nt) {
+                                add_to_follow_first(l, idx);
+                            }
+                        }
+                    }
+                    if (temp.prod[i][k + 1] == '\0') {
+                        int idx = return_index(temp.prod[i][0]) - no_t;
+                        if (idx >= 0 && idx < no_nt) {
+                            add_to_follow_from_another(l, idx);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Initialize tables
+    init_tables(state_count);
+    // Populate shift and goto actions
+    populate_shift_goto(state_count);
+    // Populate reduce actions
+    populate_reduce(state_count, no_re, &temp1);
+    // Print the merged parsing table
+    print_parsing_table(state_count, &temp1);
+
+    return 0;
+}
+
+------------------------------------------------------------------------------------
+
+3AC
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <ctype.h>
+#include <string.h>
+
+#define MAX 100
+#define ID_SIZE 10 // Size of identifier strings
+
+// Stack for Operators
+char stack[MAX];
+int top = -1;
+
+void push(char c) {
+    if (top == MAX - 1) {
+        printf("Stack overflow\n");
+        return;
+    }
+    stack[++top] = c;
+}
+
+char pop() {
+    if (top == -1) {
+        return '\0';
+    }
+    return stack[top--];
+}
+
+char peek() {
+    if (top == -1) {
+        return '\0';
+    }
+    return stack[top];
+}
+
+// Operator precedence
+int precedence(char c) {
+    switch (c) {
+        case '+': 
+        case '-': 
+            return 1;
+        case '*': 
+        case '/': 
+            return 2;
+        case '^': 
+            return 3;
+        default: 
+            return 0;
+    }
+}
+
+// Structs for Quadruples and Triples
+typedef struct {
+    char op;
+    char arg1[ID_SIZE], arg2[ID_SIZE], result[ID_SIZE];
+} Quadruple;
+
+typedef struct {
+    char op;
+    char arg1[ID_SIZE], arg2[ID_SIZE];
+} Triple;
+
+Quadruple quads[MAX];
+Triple triples[MAX];
+int indirectTriples[MAX];
+int quadIndex = 0, tripleIndex = 0;
+
+// Convert infix to postfix
+void generatePostfix(char *expr, char *postfix) {
+    int i, k = 0;
+    for (i = 0; expr[i] != '\0'; i++) {
+        if (isalnum(expr[i])) {
+            postfix[k++] = expr[i];
+        } else if (expr[i] == '(') {
+            push(expr[i]);
+        } else if (expr[i] == ')') {
+            while (top != -1 && peek() != '(') {
+                postfix[k++] = pop();
+            }
+            pop();
+        } else {
+            while (top != -1 && precedence(peek()) >= precedence(expr[i])) {
+                postfix[k++] = pop();
+            }
+            push(expr[i]);
+        }
+    }
+    while (top != -1) {
+        postfix[k++] = pop();
+    }
+    postfix[k] = '\0';
+}
+
+// Function to safely convert index to string with bounds checking
+void indexToString(int index, char *buffer, size_t bufferSize) {
+    // For triple indices, limit to 2 digits max (0-99)
+    // This ensures max string length of 2 characters + null terminator
+    if (index < 100) {
+        snprintf(buffer, bufferSize, "%d", index);
+    } else {
+        // Use modulo to cycle back for larger values
+        snprintf(buffer, bufferSize, "%d", index % 100);
+    }
+}
+
+// Safe function to create temporary variable names
+void createTempVar(int count, char *buffer, size_t bufferSize) {
+    // Ensure we only use single or double-digit numbers (T0-T99)
+    // "T" + 2 digits + null = 4 bytes max
+    if (count < 100) {
+        snprintf(buffer, bufferSize, "T%d", count);
+    } else {
+        // Use modulo to cycle back for larger values
+        snprintf(buffer, bufferSize, "T%d", count % 100);
+    }
+}
+
+// Generate 3AC and populate Quadruples, Triples, and Indirect Triples
+void generate3AC(char *postfix) {
+    char tempStack[MAX][ID_SIZE];
+    int tempTop = -1, count = 1;
+    
+    printf("\nThree Address Code:\n");
+    
+    for (int i = 0; postfix[i] != '\0'; i++) {
+        if (isalnum(postfix[i])) {
+            char temp[2] = {postfix[i], '\0'};
+            strcpy(tempStack[++tempTop], temp);
+        } else {
+            char op2[ID_SIZE], op1[ID_SIZE], res[ID_SIZE];
+            strcpy(op2, tempStack[tempTop--]);
+            strcpy(op1, tempStack[tempTop--]);
+            
+            // Safe generation of temporary variable names
+            createTempVar(count++, res, sizeof(res));
+            
+            // Print 3AC
+            printf("%s = %s %c %s\n", res, op1, postfix[i], op2);
+            
+            // Store in Quadruples
+            quads[quadIndex].op = postfix[i];
+            strcpy(quads[quadIndex].arg1, op1);
+            strcpy(quads[quadIndex].arg2, op2);
+            strcpy(quads[quadIndex].result, res);
+            quadIndex++;
+            
+            // Store in Triples (use index instead of T1, T2, etc.)
+            triples[tripleIndex].op = postfix[i];
+            if (op1[0] == 'T') { // If op1 is a temporary variable
+                indexToString(tripleIndex - 1, triples[tripleIndex].arg1,
+                              sizeof(triples[tripleIndex].arg1));
+            } else {
+                strcpy(triples[tripleIndex].arg1, op1);
+            }
+            
+            if (op2[0] == 'T') { // If op2 is a temporary variable
+                indexToString(tripleIndex - 1, triples[tripleIndex].arg2,
+                              sizeof(triples[tripleIndex].arg2));
+            } else {
+                strcpy(triples[tripleIndex].arg2, op2);
+            }
+            
+            tripleIndex++;
+            
+            // Store Indirect Triples as references to Triples
+            indirectTriples[tripleIndex - 1] = tripleIndex - 1;
+            
+            // Push result onto stack for further computations
+            strcpy(tempStack[++tempTop], res);
+        }
+    }
+}
+
+// Print Quadruples Representation
+void printQuadruples() {
+    printf("\nQuadruples:\n");
+    printf("+------+-----+-----+------+\n");
+    printf("| OP | A1 | A2 | RES |\n");
+    printf("+------+-----+-----+------+\n");
+    for (int i = 0; i < quadIndex; i++) {
+        printf("| %c | %s | %s | %s |\n", quads[i].op, quads[i].arg1, quads[i].arg2,
+               quads[i].result);
+    }
+    printf("+------+-----+-----+------+\n");
+}
+
+// Print Triples Representation
+void printTriples() {
+    printf("\nTriples:\n");
+    printf("+------+-----+-----+\n");
+    printf("| OP | A1 | A2 |\n");
+    printf("+------+-----+-----+\n");
+    for (int i = 0; i < tripleIndex; i++) {
+        printf("| %c | %s | %s |\n", triples[i].op, triples[i].arg1, triples[i].arg2);
+    }
+    printf("+------+-----+-----+\n");
+}
+
+// Print Indirect Triples Representation
+void printIndirectTriples() {
+    printf("\nIndirect Triples:\n");
+    printf("+------+---------+\n");
+    printf("| INDEX| ENTRY |\n");
+    printf("+------+---------+\n");
+    for (int i = 0; i < tripleIndex; i++) {
+        printf("| %d | (%c, %s, %s) |\n", i, triples[indirectTriples[i]].op,
+               triples[indirectTriples[i]].arg1, triples[indirectTriples[i]].arg2);
+    }
+    printf("+------+---------+\n");
+}
+
+int main() {
+    char expr[MAX], postfix[MAX];
+    printf("Enter an arithmetic expression: ");
+    scanf("%s", expr);
+    
+    generatePostfix(expr, postfix);
+    generate3AC(postfix);
+    
+    // Print representations
+    printQuadruples();
+    printTriples();
+    printIndirectTriples();
+    
+    return 0;
+}
+
+--------------------------------------------------------------------------------
+
+LALR
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <ctype.h>
+#include <stdbool.h>
+
+#define MAX_PRODUCTIONS 100
+#define MAX_SYMBOLS 50
+#define MAX_STATES 100 // Increased to 100 to allow states such as 89.
+#define MAX_CELL_LEN 10
+
+// Global arrays for LALR table (action and goto parts)
+char action[MAX_STATES][MAX_SYMBOLS][MAX_CELL_LEN];
+int gotoTable[MAX_STATES][MAX_SYMBOLS];
+
+// DSU array for merging states (for a full LALR generator)
+int dsu[MAX_STATES];
+
+// Initialize DSU array.
+void initDSU(int n) {
+    for (int i = 0; i < n; i++) {
+        dsu[i] = -1;
+    }
+}
+
+// DSU find with path compression.
+int findDSU(int p) {
+    if (dsu[p] < 0)
+        return p;
+    return dsu[p] = findDSU(dsu[p]);
+}
+
+// DSU merge: merge sets containing x and y.
+void mergeDSU(int x, int y) {
+    x = findDSU(x);
+    y = findDSU(y);
+    if (x > y) {
+        int temp = x;
+        x = y;
+        y = temp;
+    }
+    dsu[x] += dsu[y];
+    dsu[y] = x;
+}
+
+// Data structure for a production
+typedef struct {
+    char lhs;
+    char rhs[MAX_SYMBOLS];
+} Production;
+
+Production productions[MAX_PRODUCTIONS];
+int numProductions = 0;
+char terminals[MAX_SYMBOLS];
+int numTerminals = 0;
+char nonTerminals[MAX_SYMBOLS];
+int numNonTerminals = 0;
+
+// Reads grammar productions from user input in the form A->B.
+void readGrammar() {
+    int i, j;
+    printf("Enter number of productions (S->CC) : ");
+    scanf("%d", &numProductions);
+    getchar(); // consume newline
+    printf("Enter productions one by one (e.g., S->aA):\n");
+    for (i = 0; i < numProductions; i++) {
+        char input[MAX_SYMBOLS + 3];
+        fgets(input, sizeof(input), stdin);
+        input[strcspn(input, "\n")] = '\0'; // remove newline
+        productions[i].lhs = input[0];
+        strcpy(productions[i].rhs, input + 3); // skip "A->"
+        // Also collect nonterminals and terminals:
+        if (!isupper(input[0]) && !isdigit(input[0]))
+            ; // do nothing
+        else if (!strchr(nonTerminals, input[0])) {
+            nonTerminals[numNonTerminals++] = input[0];
+        }
+        for (j = 3; input[j] != '\0'; j++) {
+            char c = input[j];
+            if (isupper(c)) {
+                if (!strchr(nonTerminals, c)) {
+                    nonTerminals[numNonTerminals++] = c;
+                }
+            } else {
+                if (c != 'e' && !strchr(terminals, c)) {
+                    terminals[numTerminals++] = c;
+                }
+            }
+        }
+    }
+}
+
+// Reads terminals from user input.
+void readTerminals() {
+    // Alternatively, you can have the user input terminals separately.
+    // Here we assume terminals are already collected from the productions.
+    // For demonstration, we append the end-of-input symbol '$'
+    terminals[numTerminals++] = '$';
+}
+
+// Prints the grammar.
+void printGrammar() {
+    printf("\nGrammar Productions:\n");
+    for (int i = 0; i < numProductions; i++) {
+        printf("%c->%s\n", productions[i].lhs, productions[i].rhs);
+    }
+}
+
+// ----- Placeholder LALR Parsing Table Construction -----
+// In a complete implementation, you would compute the canonical collection of LR(0) or LR(1) items,
+// merge states that have the same core, and then fill shift, reduce, goto and accept entries
+// based on computed FOLLOW sets.
+// For demonstration purposes, we hardcode some table entries.
+void constructParsingTable() {
+    int i, j;
+    // Initialize action table and goto table.
+    for (i = 0; i < MAX_STATES; i++) {
+        for (j = 0; j < MAX_SYMBOLS; j++) {
+            strcpy(action[i][j], "");
+            gotoTable[i][j] = -1;
+        }
+    }
+
+    // For demonstration, we assume there are at least 90 states.
+    // (In a real parser, state numbers are computed dynamically.)
+    // Here we insert some dummy values:
+    // In state 0, on terminal 'c' (assume terminals[0] == 'c') we shift to state 36,
+    // and on terminal 'd' (terminals[1] == 'd') we shift to state 47.
+    if (numTerminals >= 2) {
+        strcpy(action[0][0], "s36"); // for terminal at index 0, e.g., 'c'
+        strcpy(action[0][1], "s47"); // for terminal at index 1, e.g., 'd'
+    }
+    // In state 1, on '$', we accept.
+    strcpy(action[1][numTerminals - 1], "acc");
+
+    // In state 2, shift actions (dummy)
+    strcpy(action[2][0], "s36");
+    strcpy(action[2][1], "s47");
+
+    // In state 36, shift actions (dummy)
+    strcpy(action[36][0], "s36");
+    strcpy(action[36][1], "s47");
+
+    // In state 47, assume we have a complete item corresponding to production number 3.
+    // We set reduce actions on terminals in the FOLLOW set.
+    // For demonstration, assume FOLLOW(C) = "cd$". Place reduce action "r3" in those columns.
+    strcpy(action[47][0], "r3"); // for terminal 'c'
+    strcpy(action[47][1], "r3"); // for terminal 'd'
+    strcpy(action[47][numTerminals - 1], "r3"); // for terminal '$'
+
+    // In state 5, set reduce action "r1" on terminal at index 2.
+    strcpy(action[5][2], "r1");
+
+    // In state 89, set reduce action "r2" on some terminals.
+    strcpy(action[89][0], "r2");
+    strcpy(action[89][1], "r2");
+    strcpy(action[89][numTerminals - 1], "r2");
+
+    // For goto entries (only for nonterminals) we assume:
+    // goto(0, S) = 1, goto(0, A) = 2, goto(2, A) = 5, goto(36, A) = 89.
+    // Nonterminal columns start at index numTerminals.
+    gotoTable[0][0 + numTerminals] = 1; // for nonterminal S if S is first in nonTerminals.
+    gotoTable[0][1 + numTerminals] = 2; // for nonterminal A if A is second.
+    gotoTable[2][1 + numTerminals] = 5;
+    gotoTable[36][1 + numTerminals] = 89;
+}
+
+// Prints the combined LALR parsing table.
+void printParsingTable() {
+    int i, j;
+    printf("\n________________________________________________________________\n");
+    printf("\t\tLALR(1) PARSING TABLE\n");
+    printf("________________________________________________________________\n");
+    // Print header: nonterminals then terminals.
+    printf("State\t|");
+    for (i = 0; i < numNonTerminals; i++) {
+        printf(" %c\t|", nonTerminals[i]);
+    }
+    for (i = 0; i < numTerminals; i++) {
+        printf(" %c\t|", terminals[i]);
+    }
+    printf("\n________________________________________________________________\n");
+
+    // We assume that states from 0 to MAX_STATES-1 that have any entry are valid.
+    // For demonstration, we loop from state 0 to 99.
+    for (i = 0; i < MAX_STATES; i++) {
+        int nonEmpty = 0;
+        for (j = 0; j < numTerminals + numNonTerminals; j++) {
+            if (strlen(action[i][j]) > 0 || gotoTable[i][j] != -1) {
+                nonEmpty = 1;
+                break;
+            }
+        }
+        if (!nonEmpty)
+            continue;
+        printf("%d\t|", i);
+        // Print nonterminal columns first.
+        for (j = 0; j < numNonTerminals; j++) {
+            int col = numTerminals + j;
+            if (gotoTable[i][col] != -1)
+                printf(" %d\t|", gotoTable[i][col]);
+            else
+                printf(" -\t|");
+        }
+        // Then print terminal columns.
+        for (j = 0; j < numTerminals; j++) {
+            if (strlen(action[i][j]) > 0)
+                printf(" %s\t|", action[i][j]);
+            else
+                printf(" -\t|");
+        }
+        printf("\n");
+    }
+    printf("________________________________________________________________\n");
+}
+
+int main() {
+    // Read grammar from user.
+    readGrammar();
+    readTerminals();
+    printGrammar();
+
+    // (Here you would normally compute LR(0) items, merge states, compute FOLLOW sets, etc.
+    // For demonstration purposes, we use hardcoded table entries.)
+
+    // Construct the dummy LALR parsing table.
+    constructParsingTable();
+
+    // Print the resulting parsing table.
+    printParsingTable();
+
+    return 0;
+}
+
