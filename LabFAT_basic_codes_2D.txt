@@ -1,0 +1,249 @@
+1) 2D platformer - Player move and jump
+
+using UnityEditor;
+using UnityEngine;
+
+public class PlayerController : MonoBehaviour
+{
+    public float moveSpeed = 5f;
+    public float jumpForce = 2f;
+    private bool isGrounded;
+    private Rigidbody2D rb;
+
+    private int score = 0;
+
+    void Start()
+    {
+        rb = GetComponent<Rigidbody2D>();
+    }
+
+    void Update()
+    {
+        float horizontal = Input.GetAxis("Horizontal");
+        Vector2 movement = new Vector2(horizontal, 0);
+        transform.Translate(movement * moveSpeed * Time.deltaTime, Space.World);
+
+        if (Input.GetKeyDown(KeyCode.Space) && isGrounded)
+        {
+            Jump();
+        }
+    }
+
+    void OnCollisionStay2D(Collision2D collision)
+    {
+        if (collision.gameObject.CompareTag("Ground"))
+        {
+            isGrounded = true;
+        }
+
+        if (collision.gameObject.CompareTag("Down"))
+        {
+            EndGame();
+        }
+
+        if (collision.gameObject.CompareTag("Collectable"))
+        {
+            IncrementScore();
+            collision.gameObject.GetComponent<Collectable>().RepositionCollectable();
+        }
+    }
+
+    void OnCollisionExit2D(Collision2D collision)
+    {
+        if (collision.gameObject.CompareTag("Ground"))
+        {
+            isGrounded = false;
+        }
+    }
+
+    void Jump()
+    {
+        rb.AddForce(Vector2.up * jumpForce, ForceMode2D.Impulse);
+    }
+
+    void EndGame()
+    {
+        EditorApplication.isPlaying = false;
+    }
+
+    void IncrementScore()
+    {
+        score += 1;
+    }
+
+    void OnGUI()
+    {
+        GUIStyle style = new GUIStyle();
+        style.fontSize = 24;
+        GUI.Label(new Rect(10, 10, 200, 20), "Score: " + score, style);
+    }
+}
+
+-------------------------------------------------------------------------------------------------------------------------------------
+2) 2D platformer - Follow camera
+
+using UnityEngine;
+
+public class CameraFollow : MonoBehaviour
+{
+    public Rigidbody2D targetRigidbody;
+    public float fixedDistance = 5f;
+    public float smoothSpeed = 0.125f;
+
+    private Vector3 offset;
+
+    void Start() {
+        offset = transform.position - new Vector3(targetRigidbody.position.x, targetRigidbody.position.y, transform.position.z);
+    }
+
+    void LateUpdate() {
+        float targetX = targetRigidbody.position.x + fixedDistance;
+        float targetY = targetRigidbody.position.y + offset.y;
+
+        Vector3 targetPosition = new Vector3(targetX, targetY, transform.position.z);
+        transform.position = Vector3.Lerp(transform.position, targetPosition, smoothSpeed);
+    }
+}
+-------------------------------------------------------------------------------------------------------------------------------------
+3) 2D platformer - Collectable
+
+using UnityEngine;
+using System.Collections.Generic; // To use List
+
+public class Collectable : MonoBehaviour
+{
+    public List<Vector3> possibleLocations = new List<Vector3>();
+
+    void Start()
+    {
+        if (possibleLocations.Count == 0)
+        {
+            possibleLocations.Add(new Vector3(1.34f, -0.31f, 0f));
+            possibleLocations.Add(new Vector3(8.06f, -3f, 0f));
+            possibleLocations.Add(new Vector3(-4.09f, -2.65f, 0f));
+            possibleLocations.Add(new Vector3(14.79f, -0.31f, 0f));
+            possibleLocations.Add(new Vector3(21.12f, -2.85f, 0f));
+            possibleLocations.Add(new Vector3(-8.77f, -1f, 0f));
+        }
+    }
+
+    public void RepositionCollectable()
+    {
+        int randomIndex = Random.Range(0, possibleLocations.Count);
+        transform.position = possibleLocations[randomIndex];
+    }
+}
+-------------------------------------------------------------------------------------------------------------------------------------
+4) Falling object game - Player
+
+using UnityEngine;
+using UnityEditor;
+using System.Collections;
+
+public class PlayerMovement : MonoBehaviour
+{
+    public float moveSpeed = 5f;
+    private Rigidbody2D rb;
+    private int score = 0;
+    private bool gameOver = false;
+
+    void Start()
+    {
+        rb = GetComponent<Rigidbody2D>();
+    }
+
+    void Update()
+    {
+        if (!gameOver)
+        {
+            float moveInput = Input.GetAxis("Horizontal");
+            rb.linearVelocity = new Vector2(moveInput * moveSpeed, rb.linearVelocity.y);
+        }
+    }
+
+    void OnCollisionEnter2D(Collision2D collision)
+    {
+        if (collision.gameObject.CompareTag("Good"))
+        {
+            Destroy(collision.gameObject);
+            score++;
+        }
+
+        if (collision.gameObject.CompareTag("Bad"))
+        {
+            gameOver = true;
+            StartCoroutine(ShowGameOver());
+        }
+    }
+
+    void OnGUI()
+    {
+        GUIStyle style = new GUIStyle();
+        style.fontSize = 24;
+        GUI.Label(new Rect(10, 10, 200, 20), "Score: " + score, style);
+        
+        if (gameOver)
+        {
+            GUI.Label(new Rect(Screen.width / 2 - 50, Screen.height / 2 - 15, 200, 30), "Game Over", style);
+        }
+    }
+
+    IEnumerator ShowGameOver()
+    {
+        yield return new WaitForSeconds(3f);
+        EditorApplication.isPlaying = false;
+    }
+}
+
+-------------------------------------------------------------------------------------------------------------------------------------
+5) Falling object game - Spawner
+
+using System.Collections;
+using UnityEngine;
+
+public class FallingObjectSpawner : MonoBehaviour
+{
+    public GameObject goodObject;
+    public GameObject badObject;
+    public float spawnInterval = 2f;
+    public float spawnRangeX = 8f;
+    public float fallSpeed = 2f;
+
+    void Start()
+    {
+        StartCoroutine(SpawnObjects());
+    }
+    IEnumerator SpawnObjects()
+    {
+        while (true)
+        {
+            GameObject objectToSpawn = Random.Range(0f, 1f) > 0.5f ? goodObject : badObject;
+
+            float randomX = Random.Range(-spawnRangeX, spawnRangeX);
+            float spawnY = Camera.main.orthographicSize + 1f;
+
+            Vector3 spawnPosition = new Vector3(randomX, spawnY, 0f);
+            GameObject newObject = Instantiate(objectToSpawn, spawnPosition, Quaternion.identity);
+
+            Rigidbody2D rb = newObject.GetComponent<Rigidbody2D>();
+            if (rb != null)
+            {
+                rb.gravityScale = fallSpeed;
+            }
+            yield return new WaitForSeconds(spawnInterval);
+        }
+    }
+}
+
+-------------------------------------------------------------------------------------------------------------------------------------
+6) Destroy when hit ground
+
+using UnityEngine;
+
+public class FallingObject : MonoBehaviour {
+    private void OnCollisionEnter2D(Collision2D collision) {
+        if (collision.gameObject.CompareTag("Ground")) {
+            Destroy(gameObject);
+        }
+    }
+}

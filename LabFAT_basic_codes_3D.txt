@@ -1,0 +1,290 @@
+1) Object movement
+
+using UnityEngine;
+
+public class CubeMovement : MonoBehaviour
+{
+    public float moveSpeed = 5f;
+
+    void Update()
+    {
+        float horizontal = Input.GetAxis("Horizontal");  // Left/Right (Arrow keys or A/D)
+        float vertical = Input.GetAxis("Vertical");      // Up/Down (Arrow keys or W/S)
+        Vector3 movement = new Vector3(horizontal, 0, vertical);
+        transform.Translate(movement * moveSpeed * Time.deltaTime);
+    }
+}
+
+-------------------------------------------------------------------------------------------------------------------------------------
+2) Car movement
+
+using UnityEngine;
+
+public class CarMovement : MonoBehaviour
+{
+    public float moveSpeed = 5f;
+    public float rotationSpeed = 100f;
+    void Update()
+    {
+        float vertical = Input.GetAxis("Vertical");  // Up/Down (Arrow keys or W/S)
+        float horizontal = Input.GetAxis("Horizontal");  // Left/Right (Arrow keys or A/D)
+        transform.Translate(Vector3.forward * vertical * moveSpeed * Time.deltaTime);
+        transform.Rotate(0, horizontal * rotationSpeed * Time.deltaTime, 0);
+    }
+}
+
+-------------------------------------------------------------------------------------------------------------------------------------
+3) Move and jump
+
+using UnityEngine;
+
+public class ObjectMovement : MonoBehaviour
+{
+    public float moveSpeed = 5f;
+    public float jumpForce = 7f;
+
+    private bool isGrounded;
+    private Rigidbody rb;
+    void Start()
+    {
+        rb = GetComponent<Rigidbody>();
+    }
+
+    void Update()
+    {
+        float horizontal = Input.GetAxis("Horizontal");  // Left/Right (Arrow keys or A/D)
+        float vertical = Input.GetAxis("Vertical");      // Forward/Backward (Arrow keys or W/S)
+
+        Vector3 movement = new Vector3(horizontal, 0, vertical);
+        transform.Translate(movement * moveSpeed * Time.deltaTime, Space.World);
+
+        if (Input.GetKeyDown(KeyCode.Space) && isGrounded)
+        {
+            Jump();
+        }
+    }
+
+    void OnCollisionStay(Collision other)
+    {
+        if (other.gameObject.CompareTag("Ground"))
+        {
+            isGrounded = true;
+        }
+    }
+
+    void OnCollisionExit(Collision other)
+    {
+        if (other.gameObject.CompareTag("Ground"))
+        {
+            isGrounded = false;
+        }
+    }
+
+    void Jump()
+    {
+        rb.AddForce(Vector3.up * jumpForce, ForceMode.Impulse);
+    }
+}
+
+-------------------------------------------------------------------------------------------------------------------------------------
+4) Die when Hit object (with tag)
+
+using UnityEngine;
+using UnityEngine.SceneManagement;  // For scene management (to restart or load a Game Over scene)
+
+public class DieWhenHitEnemy : MonoBehaviour
+{
+    public float moveSpeed = 5f;
+    public float jumpForce = 7f;
+
+    private bool isGrounded;
+    private Rigidbody rb;
+
+    void Start()
+    {
+        rb = GetComponent<Rigidbody>();
+    }
+
+    void Update()
+    {
+        float horizontal = Input.GetAxis("Horizontal");  // Left/Right (Arrow keys or A/D)
+        float vertical = Input.GetAxis("Vertical");      // Forward/Backward (Arrow keys or W/S)
+
+        Vector3 moveDirection = new Vector3(horizontal, 0, vertical);
+        transform.Translate(moveDirection * moveSpeed * Time.deltaTime, Space.World);
+
+        if (Input.GetKeyDown(KeyCode.Space) && isGrounded)
+        {
+            Jump();
+        }
+    }
+
+    void OnCollisionStay(Collision other)
+    {
+        if (other.gameObject.CompareTag("Ground"))
+        {
+            isGrounded = true;
+        }
+
+        if (other.gameObject.CompareTag("Enemy"))
+        {
+            GameOver();
+        }
+    }
+
+    void OnCollisionExit(Collision other)
+    {
+        if (other.gameObject.CompareTag("Ground"))
+        {
+            isGrounded = false;
+        }
+    }
+
+    void Jump()
+    {
+        rb.AddForce(Vector3.up * jumpForce, ForceMode.Impulse);
+    }
+
+    void GameOver()
+    {
+        Debug.Log("Game Over!");
+        SceneManager.LoadScene(SceneManager.GetActiveScene().name); // Reload the scene
+        UnityEditor.EditorApplication.isPlaying = false; //Quit game
+    }
+}
+
+-------------------------------------------------------------------------------------------------------------------------------------
+5) Move objects randomly
+
+using UnityEngine;
+
+public class RandomMovement : MonoBehaviour {
+    public Vector3 minBounds;
+    public Vector3 maxBounds;
+
+    public float moveSpeed = 3f;
+    public float moveInterval = 2f;
+    private Vector3 targetPosition;
+
+    void Start() {
+        InvokeRepeating("MoveToRandomPosition", 0f, moveInterval);
+    }
+
+    void Update() {
+        transform.position = Vector3.MoveTowards(transform.position, targetPosition, moveSpeed * Time.deltaTime);
+    }
+
+    void MoveToRandomPosition() {
+        float randomX = Random.Range(minBounds.x, maxBounds.x);
+        float randomY = Random.Range(minBounds.y, maxBounds.y);
+        float randomZ = Random.Range(minBounds.z, maxBounds.z);
+        targetPosition = new Vector3(randomX, randomY, randomZ);
+    }
+}
+
+-------------------------------------------------------------------------------------------------------------------------------------
+6) Scores update
+
+using UnityEngine;
+using UnityEngine.SceneManagement;
+
+public class DieWhenHitEnemy : MonoBehaviour
+{
+    public float moveSpeed = 5f;
+    public float jumpForce = 7f;
+
+    private int score = 100;
+    private bool isGrounded;
+    private bool gameOver = false;
+    private Rigidbody rb;
+
+    void Start() {
+        rb = GetComponent<Rigidbody>();
+    }
+
+    void Update() {
+        if (gameOver) {
+            return;
+        }
+
+        float horizontal = Input.GetAxis("Horizontal");  // Left/Right (Arrow keys or A/D)
+        float vertical = Input.GetAxis("Vertical");      // Forward/Backward (Arrow keys or W/S)
+
+        Vector3 moveDirection = new Vector3(horizontal, 0, vertical);
+        transform.Translate(moveDirection * moveSpeed * Time.deltaTime, Space.World);
+
+        if (Input.GetKeyDown(KeyCode.Space) && isGrounded) {
+            Jump();
+        }
+    }
+
+    void OnCollisionStay(Collision other) {
+        if (other.gameObject.CompareTag("Ground")) {
+            isGrounded = true;
+        }
+
+        if (other.gameObject.CompareTag("Enemy") && !gameOver) {
+            score -= 10;
+            UpdateScoreText();
+
+            if (score <= 0) {
+                GameOver();
+            }
+        }
+
+        if (other.gameObject.CompareTag("Collectable")) {
+            score += 100;
+            UpdateScoreText();
+            other.gameObject.GetComponent<Collectable>().RepositionCollectable();
+        }
+    }
+
+    void OnCollisionExit(Collision other) {
+        if (other.gameObject.CompareTag("Ground")) {
+            isGrounded = false;
+        }
+    }
+
+    void Jump() {
+        rb.AddForce(Vector3.up * jumpForce, ForceMode.Impulse);
+    }
+
+    void GameOver() {
+        Debug.Log("Game Over!");
+        UnityEditor.EditorApplication.isPlaying = false;
+        gameOver = true;
+    }
+
+    void OnGUI() {
+        if (!gameOver) {
+            GUIStyle style = new GUIStyle();
+            style.fontSize = 24;                      // Set font size
+            style.normal.textColor = Color.white;     // Set text color to white
+            style.alignment = TextAnchor.UpperRight;  // Align text to the upper-right corner
+
+            GUI.Label(new Rect(Screen.width - 150, 10, 140, 30), "Score: " + score, style);
+        }
+    }
+
+    void UpdateScoreText() {
+    }
+}
+
+-------------------------------------------------------------------------------------------------------------------------------------
+7) Collectable
+
+using UnityEngine;
+
+public class Collectable : MonoBehaviour
+{
+    public Vector3 minPosition;
+    public Vector3 maxPosition;
+
+    public void RepositionCollectable()
+    {
+        float randomX = Random.Range(minPosition.x, maxPosition.x);
+        float randomY = Random.Range(minPosition.y, maxPosition.y);
+        float randomZ = Random.Range(minPosition.z, maxPosition.z);
+        transform.position = new Vector3(randomX, randomY, randomZ);
+    }
+}
